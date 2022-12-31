@@ -23,13 +23,13 @@ typedef cache_set_t* cache_t;
 
 void printHelp(char* argv[]);
 
-void initCache(cache_t* c, int s, int E);
+void initCache(cache_t c, int s, int E);
 
-void freeCache(cache_t* c, int s, int E);
+void freeCache(cache_t c, int s, int E);
 
-char* load(cache_t* c, addr_t setI, addr_t tag, int E, unsigned long timestamp);
+char* load(cache_t c, addr_t setI, addr_t tag, int E, unsigned long timestamp);
 
-char* store(cache_t* c, addr_t setI, addr_t tag, int E, unsigned long timestamp);
+char* store(cache_t c, addr_t setI, addr_t tag, int E, unsigned long timestamp);
 
 int main(int argc, char* argv[]) {
     bool enableVerbose = false;
@@ -38,7 +38,7 @@ int main(int argc, char* argv[]) {
     int blockBits = 0;
     int tagBits;
     char* tracefile;
-    cache_t cache;
+    cache_t cache = NULL;
 
     // By placing a colon as the first character of the options string,
     // getopt() returns ':' instead of '?' when no argument is given
@@ -105,10 +105,11 @@ int main(int argc, char* argv[]) {
     }
 
     // Masks for getting setIndex and tag from full address
+    
     addr_t setMask = ~(0xffffffffffffffff << setBits);
     addr_t tagMask = ~(0xffffffffffffffff << tagBits);
     addr_t numSets = pow(2, setBits);
-    initCache(&cache, numSets, E);
+    initCache(cache, numSets, E);
 
     char cmd;
     addr_t addr;
@@ -124,19 +125,19 @@ int main(int argc, char* argv[]) {
         if (cmd == 'L') {
             setIndex = (addr >> blockBits) & setMask;
             tag = (addr >> tagShift) & tagMask;
-            strcat(result, load(&cache, setIndex, tag, E, timestamp));
+            strcat(result, load(cache, setIndex, tag, E, timestamp));
 
         } else if (cmd == 'M') {
             setIndex = (addr >> blockBits) & setMask;
             tag = (addr >> tagShift) & tagMask;
-            strcat(result, load(&cache, setIndex, tag, E, timestamp));
+            strcat(result, load(cache, setIndex, tag, E, timestamp));
             strcat(result, " ");
-            strcat(result, store(&cache, setIndex, tag, E, timestamp));
+            strcat(result, store(cache, setIndex, tag, E, timestamp));
 
         } else if (cmd == 'S') {
             setIndex = (addr >> blockBits) & setMask;
             tag = (addr >> tagShift) & tagMask;
-            strcat(result, load(&cache, setIndex, tag, E, timestamp));
+            strcat(result, load(cache, setIndex, tag, E, timestamp));
 
         } else {
             continue;
@@ -149,9 +150,36 @@ int main(int argc, char* argv[]) {
         timestamp += 1;
     }
     
-    freeCache(&cache, numSets, E);
+    freeCache(cache, numSets, E);
     fclose(file);
     return 0;
+}
+
+/*
+Initialize cache.
+For cache, which is a pointer to an array of pointers, allocate memory
+equal to the size of the pointer * s. For cache[i], which is an array of
+cache_line_t, allocate memory equal to sizeof(cache_line_t) * E.
+Finally set all struct instance variables to 0.
+*/
+void initCache(cache_t cache, int s, int E) {
+
+    long int x = sizeof(cache_set_t) * s;
+    printf("%ld", x);
+
+    long int y = sizeof(cache_line_t) * s;
+    printf("%ld", y);
+
+    cache = (cache_set_t*) malloc(sizeof(cache_set_t) * s);
+    for (int i = 0; i < s; i += 1) {
+
+        cache[i] = (cache_line_t*) malloc(sizeof(cache_line_t) * E);
+        for (int j = 0; j < E; j += 1) {
+            cache[i][j].tag = 0;
+            cache[i][j].isValid = false;
+            cache[i][j].timestamp = 0;
+        }
+    }
 }
 
 
@@ -160,15 +188,15 @@ Function representing pulling data from the cache.
 Results in either hit (data in cache), miss (data not in cache),
 or miss + evict (data not in cache and replace LRU line)
 */
-char* load(cache_t* c, addr_t setI, addr_t tag, int E, unsigned long timestamp) {
+char* load(cache_t c, addr_t setI, addr_t tag, int E, unsigned long timestamp) {
     // Loading results in either hit, miss, or miss + evict
 
     // Iterate through the particular set, see if there is a line with isValid
     // and matching tag. If yes, hit
     for (int i = 0; i < E; i += 1) {
-        bool allValid = allValid && c[setI][E]->isValid;
-        if (c[setI][E]->isValid && c[setI][E]->tag == tag) {
-            c[setI][E]->timestamp = timestamp;
+        bool allValid = allValid && c[setI][E].isValid;
+        if (c[setI][E].isValid && c[setI][E].tag == tag) {
+            c[setI][E].timestamp = timestamp;
             return "hit";
         }
     }
@@ -176,17 +204,17 @@ char* load(cache_t* c, addr_t setI, addr_t tag, int E, unsigned long timestamp) 
     unsigned long lru = 0xFFFFFFFF;
     int lruIndex;
     for (int i = 0; i < E; i += 1) {
-        if (!(c[setI][E]->isValid)) {
-            c[setI][E]->isValid = true; // representing a load into cache
+        if (!(c[setI][E].isValid)) {
+            c[setI][E].isValid = true; // representing a load into cache
             return "miss";
         }
-        if (c[setI][E]->timestamp < lru) {
-            lru = c[setI][E]->timestamp;
+        if (c[setI][E].timestamp < lru) {
+            lru = c[setI][E].timestamp;
             lruIndex = i;
         }
     }
-    c[setI][lruIndex]->timestamp = timestamp; // representing an evict
-    c[setI][lruIndex]->tag = tag;
+    c[setI][lruIndex].timestamp = timestamp; // representing an evict
+    c[setI][lruIndex].tag = tag;
     return "miss eviction";
 }
 
@@ -196,16 +224,16 @@ Function representing pushing data to the cache.
 Results in either hit (data in cache), miss (data not in cache),
 or miss + evict (data not in cache and replace LRU line)
 */
-char* store(cache_t* c, addr_t setI, addr_t tag, int E, unsigned long timestamp) {
+char* store(cache_t c, addr_t setI, addr_t tag, int E, unsigned long timestamp) {
     // Loading results in either hit, miss, or miss + evict
 
     // Iterate through the particular set, see if there is a line with isValid
     // and matching tag. If yes, hit
     for (int i = 0; i < E; i += 1) {
-        bool allValid = allValid && c[setI][E]->isValid;
+        bool allValid = allValid && c[setI][E].isValid;
 
-        if (c[setI][E]->isValid && c[setI][E]->tag == tag) {
-            c[setI][E]->timestamp = timestamp;
+        if (c[setI][E].isValid && c[setI][E].tag == tag) {
+            c[setI][E].timestamp = timestamp;
             return "hit";
         }
     }
@@ -213,45 +241,22 @@ char* store(cache_t* c, addr_t setI, addr_t tag, int E, unsigned long timestamp)
     unsigned long lru = 0xFFFFFFFF;
     int lruIndex;
     for (int i = 0; i < E; i += 1) {
-        if (!(c[setI][E]->isValid)) {
-            c[setI][E]->isValid = true; // representing a load into cache
+        if (!(c[setI][E].isValid)) {
+            c[setI][E].isValid = true; // representing a load into cache
             return "miss";
         }
-        if (c[setI][E]->timestamp < lru) {
-            lru = c[setI][E]->timestamp;
+        if (c[setI][E].timestamp < lru) {
+            lru = c[setI][E].timestamp;
             lruIndex = i;
         }
     }
-    c[setI][lruIndex]->timestamp = timestamp; // representing an evict
-    c[setI][lruIndex]->tag = tag;
+    c[setI][lruIndex].timestamp = timestamp; // representing an evict
+    c[setI][lruIndex].tag = tag;
     return "miss eviction";
 }
 
 
-/*
-Initialize cache.
-For cache, which is a pointer to an array of pointers, allocate memory
-equal to the size of the pointer * s. For cache[i], which is an array of
-cache_line_t, allocate memory equal to sizeof(cache_line_t) * E.
-Finally set all struct instance variables to 0.
-*/
-void initCache(cache_t* cache, int s, int E) {
-
-    cache = (cache_set_t*) malloc(sizeof(cache_set_t) * s);
-    for (int i = 0; i < s; i += 1) {
-
-        cache[i] = (cache_line_t*) malloc(sizeof(cache_line_t) * E);
-        for (int j = 0; j < E; j += 1) {
-            cache[i][i]->tag = 0;
-            cache[i][j]->isValid = false;
-            cache[i][j]->timestamp = 0;
-        }
-    }
-}
-
-void freeCache(cache_t* c, int s, int E) {
-    cache_t cache = *c;
-
+void freeCache(cache_t cache, int s, int E) {
     cache = (cache_set_t*) malloc(sizeof(cache_set_t) * s);
     for (int i = 0; i < s; i += 1) {
         for (int j = 0; j < E; j += 1) {
