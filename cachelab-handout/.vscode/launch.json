@@ -9,7 +9,7 @@
         "type": "cppdbg",
         "request": "launch",
         "program": "${workspaceFolder}/csim",
-        "args": ["-v", "-s", "1", "-E", "2", "-b", "4", "-t", "traces/dave.trac"],
+        "args": ["-v", "-s", "1", "-E", "2", "-b", "4", "-t", "traces/dave.trace"],
         "stopAtEntry": false,
         "cwd": "${fileDirname}",
         "environment": [],

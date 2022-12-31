@@ -8,8 +8,7 @@
 #include <ctype.h>
 #include <math.h>
 
-#define ADDR_LEN
-
+#define ADDR_LEN 64
 typedef unsigned long long addr_t;
 
 typedef struct cache_line {
@@ -21,17 +20,18 @@ typedef struct cache_line {
 typedef cache_line_t* cache_set_t;
 typedef cache_set_t* cache_t;
 
+
 /*
 In initCache, cache is a stack address. Deference this and malloc memory
 so that the 8B chunk in the stack points to the heap.
 */
-void initCache(cache_t* cache, int s, int E) {
+void initCache(cache_t* cache, int s, int associativity) {
 
     *cache = (cache_set_t*) malloc(sizeof(cache_set_t) * s);
     for (int i = 0; i < s; i += 1) {
 
-        (*cache)[i] = (cache_line_t*) malloc(sizeof(cache_line_t) * E);
-        for (int j = 0; j < E; j += 1) {
+        (*cache)[i] = (cache_line_t*) malloc(sizeof(cache_line_t) * associativity);
+        for (int j = 0; j < associativity; j += 1) {
             (*cache)[i][j].tag = 0;
             (*cache)[i][j].isValid = false;
             (*cache)[i][j].timestamp = 0;
@@ -41,81 +41,47 @@ void initCache(cache_t* cache, int s, int E) {
 
 
 /*
-Function representing pulling data from the cache.
-Results in either hit (data in cache), miss (data not in cache),
-or miss + evict (data not in cache and replace LRU line)
+Results in either hit (pull/push data from data cache),
+miss (data not in cache, pull from memory and replace !isValid line / push to
+!isValid line), or miss + evict (data not in cache and replace LRU line)
 */
-char* load(cache_t c, addr_t setI, addr_t tag, int E, unsigned long timestamp) {
-    // Iterate through the particular set, see if there is a line with isValid
-    // and matching tag. If yes, hit
-    for (int i = 0; i < E; i += 1) {
-        bool allValid = allValid && c[setI][E].isValid;
-        if (c[setI][E].isValid && c[setI][E].tag == tag) {
-            c[setI][E].timestamp = timestamp;
-            return "hit";
+int load(cache_t* cache, addr_t setI, addr_t tag, int associativity, unsigned long timestamp) {
+    // Iterate through set, see if line with isValid and matching tag 
+    for (int j = 0; j < associativity; j += 1) {
+
+        if ((*cache)[setI][j].isValid && (*cache)[setI][j].tag == tag) {
+            (*cache)[setI][j].timestamp = timestamp;
+            return 0; // hit
         }
     }
     // Miss: either find a non-valid line, or if all lines valid, the LRU line
     unsigned long lru = 0xFFFFFFFF;
     int lruIndex;
-    for (int i = 0; i < E; i += 1) {
-        if (!(c[setI][E].isValid)) {
-            c[setI][E].isValid = true; // representing a load into cache
-            return "miss";
+    for (int j = 0; j < associativity; j += 1) {
+
+        // If an instance of !isValid, "load" into that line
+        if (!((*cache)[setI][j].isValid)) {
+            (*cache)[setI][j].isValid = true;
+            (*cache)[setI][j].timestamp = timestamp;
+            return 1; // miss
         }
-        if (c[setI][E].timestamp < lru) {
-            lru = c[setI][E].timestamp;
-            lruIndex = i;
+        // Finding the line with lowest lru
+        if ((*cache)[setI][j].timestamp < lru) {
+            lru = (*cache)[setI][j].timestamp;
+            lruIndex = j;
         }
     }
-    c[setI][lruIndex].timestamp = timestamp; // representing an evict
-    c[setI][lruIndex].tag = tag;
-    return "miss eviction";
+    // goes to this line if all isValid
+    (*cache)[setI][lruIndex].timestamp = timestamp; // representing an evict
+    (*cache)[setI][lruIndex].tag = tag;
+    return 2; // miss eviction
 }
 
 
-/*
-Function representing pushing data to the cache.
-Results in either hit (data in cache), miss (data not in cache),
-or miss + evict (data not in cache and replace LRU line)
-*/
-char* store(cache_t c, addr_t setI, addr_t tag, int E, unsigned long timestamp) {
-    // Loading results in either hit, miss, or miss + evict
-
-    // Iterate through the particular set, see if there is a line with isValid
-    // and matching tag. If yes, hit
-    for (int i = 0; i < E; i += 1) {
-        bool allValid = allValid && c[setI][E].isValid;
-
-        if (c[setI][E].isValid && c[setI][E].tag == tag) {
-            c[setI][E].timestamp = timestamp;
-            return "hit";
-        }
-    }
-    // Miss: either find a non-valid line, or if all lines valid, the LRU line
-    unsigned long lru = 0xFFFFFFFF;
-    int lruIndex;
-    for (int i = 0; i < E; i += 1) {
-        if (!(c[setI][E].isValid)) {
-            c[setI][E].isValid = true; // representing a load into cache
-            return "miss";
-        }
-        if (c[setI][E].timestamp < lru) {
-            lru = c[setI][E].timestamp;
-            lruIndex = i;
-        }
-    }
-    c[setI][lruIndex].timestamp = timestamp; // representing an evict
-    c[setI][lruIndex].tag = tag;
-    return "miss eviction";
-}
-
-
-void freeCache(cache_t cache, int s, int E) {
-    cache = (cache_set_t*) malloc(sizeof(cache_set_t) * s);
+void freeCache(cache_t* cache, int s, int associativity) {
     for (int i = 0; i < s; i += 1) {
-        for (int j = 0; j < E; j += 1) {
-            free(&cache[s][E]);
+        for (int j = 0; j < associativity; j += 1) {
+            free(&(*cache)[s][j]);
         }
     }
 }
@@ -137,13 +103,16 @@ void printHelp(char* argv[]) {
 
 
 int main(int argc, char* argv[]) {
+    unsigned long hits = 0;
+    unsigned long misses = 0;
+    unsigned long evictions = 0;
+    
     bool enableVerbose = false;
-    int E = 0; // associativity
     int setBits = 0;
     int blockBits = 0;
+    int associativity = 0;
     int tagBits;
     char* tracefile;
-    cache_t cache;
 
     // By placing a colon as the first character of the options string,
     // getopt() returns ':' instead of '?' when no argument is given
@@ -164,8 +133,8 @@ int main(int argc, char* argv[]) {
                 }
                 break;
             case 'E':
-                E = atoi(optarg);
-                if (E < 1)  {
+                associativity = atoi(optarg);
+                if (associativity < 1)  {
                     printf("E must be at least 1\n");
                     return 1;
                 }
@@ -195,66 +164,78 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    // Checking for valid inputs
-    // tagBits by definition, cannot be negative
-    // Thus, setBits + blockBits cannot be greater than 64
-    tagBits = ADDR_LEN - setBits - blockBits;
-    if (tagBits < 0) {
-        printf("Invalid combination of set and block bits.\n");
-        return 1;
-    }
+    // Error checking
     FILE* file = fopen(tracefile, "r");
     if (file == NULL) {
         printf("Invalid or unspecified tracefile.\n");
         return 1;
     }
-    
+    // tagBits by definition, cannot be negative
+    tagBits = ADDR_LEN - setBits - blockBits;
+    if (tagBits < 0) {
+        printf("Invalid combination of set and block bits.\n");
+        return 1;
+    }
+    int tagShift = blockBits + setBits;
+
     // Masks for getting setIndex and tag from full address
     addr_t setMask = ~(0xffffffffffffffff << setBits);
     addr_t tagMask = ~(0xffffffffffffffff << tagBits);
     addr_t numSets = pow(2, setBits);
-    initCache(&cache, numSets, E);
+    cache_t cache;
+    initCache(&cache, numSets, associativity);
 
     // Variables for parsed data
     char cmd;
     addr_t addr;
     int bytes;
 
-
     addr_t setIndex;
     addr_t tag;
-    int tagShift = blockBits + setBits;
+    
+    int result1;
+    int result2;
     unsigned long timestamp = 0;
-    char result[20];
 
     while (fscanf(file, " %c %llx,%d", &cmd, &addr, &bytes) == 3) {
 
         tag = (addr >> tagShift) & tagMask;
-        if (cmd == 'L') {
-            setIndex = (addr >> blockBits) & setMask;
-            strcat(result, load(cache, setIndex, tag, E, timestamp));
-
-        } else if (cmd == 'M') {
-            setIndex = (addr >> blockBits) & setMask;
-            strcat(result, load(cache, setIndex, tag, E, timestamp));
-            strcat(result, " ");
-            strcat(result, store(cache, setIndex, tag, E, timestamp));
-
-        } else if (cmd == 'S') {
-            setIndex = (addr >> blockBits) & setMask;
-            strcat(result, load(cache, setIndex, tag, E, timestamp));
-
+        setIndex = (addr >> blockBits) & setMask;
+        if (cmd != 'I') {
+            if (cmd == 'L' || cmd == 'S') {
+                result1 = load(&cache, setIndex, tag, timestamp, associativity);
+                result2 = 3;
+            } else { // cmd = M
+                result1 = load(&cache, setIndex, tag, timestamp, associativity);
+                result2 = load(&cache, setIndex, tag, timestamp, associativity);
+            }
+            if (result1 == 0) {
+                hits += 1;
+            } else if (result1 == 1) {
+                misses += 1;
+            } else if (result1 == 2) {
+                misses += 1;
+                evictions += 1;
+            }
+            if (result2 == 0) {
+                hits += 1;
+            } else if (result2 == 1) {
+                misses += 1;
+            } else if (result2 == 2) {
+                misses += 1;
+                evictions += 1;
+            }
         } else {
             continue;
         }
         if (enableVerbose) {
-            printf("%c %llx,%d %s\n", cmd, addr, bytes, result);
+
+            printf("%c %llx,%d %d %d\n", cmd, addr, bytes, result1, result2);
         }
-        result[0] = '\0';
         timestamp += 1;
     }
     
-    freeCache(cache, numSets, E);
+    freeCache(&cache, numSets, associativity);
     fclose(file);
     return 0;
 }
