@@ -11,7 +11,7 @@
 #define ADDR_LEN 64
 typedef unsigned long long addr_t;
 
-char strMap[4][10] = {"hit", "miss", "eviction", ""};
+char strMap[4][14] = {"hit", "miss", "miss eviction", ""};
 
 typedef struct cache_line {
     addr_t tag;
@@ -64,10 +64,11 @@ int load(cache_t* cache, addr_t setI, addr_t tag, int associativity, unsigned lo
         // If an instance of !isValid, "load" into that line
         if (!((*cache)[setI][j].isValid)) {
             (*cache)[setI][j].isValid = true;
+            (*cache)[setI][j].tag = tag;
             (*cache)[setI][j].timestamp = timestamp;
             return 1; // miss
         }
-        // Finding the line with lowest lru
+        // Finding the line with lowest lru in parallel
         if ((*cache)[setI][j].timestamp < lru) {
             lru = (*cache)[setI][j].timestamp;
             lruIndex = j;
@@ -205,11 +206,11 @@ int main(int argc, char* argv[]) {
         setIndex = (addr >> blockBits) & setMask;
         if (cmd != 'I') {
             if (cmd == 'L' || cmd == 'S') {
-                result1 = load(&cache, setIndex, tag, timestamp, associativity);
+                result1 = load(&cache, setIndex, tag, associativity, timestamp);
                 result2 = 3;
             } else { // cmd = M
-                result1 = load(&cache, setIndex, tag, timestamp, associativity);
-                result2 = load(&cache, setIndex, tag, timestamp, associativity);
+                result1 = load(&cache, setIndex, tag, associativity, timestamp);
+                result2 = load(&cache, setIndex, tag, associativity, timestamp);
             }
             if (result1 == 0) {
                 hits += 1;
@@ -235,7 +236,7 @@ int main(int argc, char* argv[]) {
         }
         timestamp += 1;
     }
-    
+    printSummary(hits, misses, evictions);
     freeCache(&cache, numSets, associativity);
     fclose(file);
     return 0;
