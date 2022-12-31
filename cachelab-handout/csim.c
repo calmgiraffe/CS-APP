@@ -11,6 +11,8 @@
 #define ADDR_LEN 64
 typedef unsigned long long addr_t;
 
+char strMap[4][10] = {"hit", "miss", "eviction", ""};
+
 typedef struct cache_line {
     addr_t tag;
     unsigned long timestamp;
@@ -229,8 +231,7 @@ int main(int argc, char* argv[]) {
             continue;
         }
         if (enableVerbose) {
-
-            printf("%c %llx,%d %d %d\n", cmd, addr, bytes, result1, result2);
+            printf("%c %llx,%d %s %s\n", cmd, addr, bytes, strMap[result1], strMap[result2]);
         }
         timestamp += 1;
     }
