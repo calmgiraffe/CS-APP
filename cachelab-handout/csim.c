@@ -81,12 +81,11 @@ int load(cache_t* cache, addr_t setI, addr_t tag, int associativity, unsigned lo
 }
 
 
-void freeCache(cache_t* cache, int s, int associativity) {
+void freeCache(cache_t* cache, int s) {
     for (int i = 0; i < s; i += 1) {
-        for (int j = 0; j < associativity; j += 1) {
-            free(&(*cache)[s][j]);
-        }
+        free((*cache)[i]);
     }
+    free(*cache);
 }
 
 
@@ -199,7 +198,7 @@ int main(int argc, char* argv[]) {
     int result1;
     int result2;
     unsigned long timestamp = 0;
-
+    
     while (fscanf(file, " %c %llx,%d", &cmd, &addr, &bytes) == 3) {
 
         tag = (addr >> tagShift) & tagMask;
@@ -237,7 +236,7 @@ int main(int argc, char* argv[]) {
         timestamp += 1;
     }
     printSummary(hits, misses, evictions);
-    freeCache(&cache, numSets, associativity);
+    freeCache(&cache, numSets);
     fclose(file);
     return 0;
 }
