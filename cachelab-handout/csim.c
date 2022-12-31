@@ -8,6 +8,8 @@
 #include <ctype.h>
 #include <math.h>
 
+#define ADDR_LEN
+
 typedef unsigned long long addr_t;
 
 typedef struct cache_line {
@@ -16,18 +18,12 @@ typedef struct cache_line {
     bool isValid;
 } cache_line_t;
 
-// Define a new type cache_set_t that is a pointer to cache_line_t
-// Define a new type cache_t that is a pointer to cache_set_t
 typedef cache_line_t* cache_set_t;
 typedef cache_set_t* cache_t;
 
-
 /*
-Initialize cache.
-For cache, which is a pointer to an array of pointers, allocate memory
-equal to the size of the pointer * s. For cache[i], which is an array of
-cache_line_t, allocate memory equal to sizeof(cache_line_t) * E.
-Finally set all struct instance variables to 0.
+In initCache, cache is a stack address. Deference this and malloc memory
+so that the 8B chunk in the stack points to the heap.
 */
 void initCache(cache_t* cache, int s, int E) {
 
@@ -50,8 +46,6 @@ Results in either hit (data in cache), miss (data not in cache),
 or miss + evict (data not in cache and replace LRU line)
 */
 char* load(cache_t c, addr_t setI, addr_t tag, int E, unsigned long timestamp) {
-    // Loading results in either hit, miss, or miss + evict
-
     // Iterate through the particular set, see if there is a line with isValid
     // and matching tag. If yes, hit
     for (int i = 0; i < E; i += 1) {
@@ -127,9 +121,6 @@ void freeCache(cache_t cache, int s, int E) {
 }
 
 
-/*
-Print help message to terminal.
-*/
 void printHelp(char* argv[]) {
     printf("Usage: %s [-hv] -s <num> -E <num> -b <num> -t <file>\n\n", argv[0]);
     printf("Options:\n");
@@ -207,7 +198,7 @@ int main(int argc, char* argv[]) {
     // Checking for valid inputs
     // tagBits by definition, cannot be negative
     // Thus, setBits + blockBits cannot be greater than 64
-    tagBits = 64 - setBits - blockBits;
+    tagBits = ADDR_LEN - setBits - blockBits;
     if (tagBits < 0) {
         printf("Invalid combination of set and block bits.\n");
         return 1;
@@ -217,46 +208,45 @@ int main(int argc, char* argv[]) {
         printf("Invalid or unspecified tracefile.\n");
         return 1;
     }
-
-    // Masks for getting setIndex and tag from full address
     
+    // Masks for getting setIndex and tag from full address
     addr_t setMask = ~(0xffffffffffffffff << setBits);
     addr_t tagMask = ~(0xffffffffffffffff << tagBits);
     addr_t numSets = pow(2, setBits);
     initCache(&cache, numSets, E);
 
+    // Variables for parsed data
     char cmd;
     addr_t addr;
     int bytes;
-    
+
+
     addr_t setIndex;
     addr_t tag;
     int tagShift = blockBits + setBits;
     unsigned long timestamp = 0;
     char result[20];
+
     while (fscanf(file, " %c %llx,%d", &cmd, &addr, &bytes) == 3) {
 
+        tag = (addr >> tagShift) & tagMask;
         if (cmd == 'L') {
             setIndex = (addr >> blockBits) & setMask;
-            tag = (addr >> tagShift) & tagMask;
             strcat(result, load(cache, setIndex, tag, E, timestamp));
 
         } else if (cmd == 'M') {
             setIndex = (addr >> blockBits) & setMask;
-            tag = (addr >> tagShift) & tagMask;
             strcat(result, load(cache, setIndex, tag, E, timestamp));
             strcat(result, " ");
             strcat(result, store(cache, setIndex, tag, E, timestamp));
 
         } else if (cmd == 'S') {
             setIndex = (addr >> blockBits) & setMask;
-            tag = (addr >> tagShift) & tagMask;
             strcat(result, load(cache, setIndex, tag, E, timestamp));
 
         } else {
             continue;
         }
-        // Print the statement here
         if (enableVerbose) {
             printf("%c %llx,%d %s\n", cmd, addr, bytes, result);
         }

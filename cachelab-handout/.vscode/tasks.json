@@ -9,7 +9,7 @@
                 "-g",
                 "-Wall",
                 "-Werror",
-                "-std-c99",
+                "-std=c99",
                 "-m64",
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}",
