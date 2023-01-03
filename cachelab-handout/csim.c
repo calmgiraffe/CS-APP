@@ -50,7 +50,6 @@ miss (data not in cache, pull from memory and replace !isValid line / push to
 int load(cache_t* cache, addr_t setI, addr_t tag, int associativity, unsigned long timestamp) {
     // Iterate through set, see if line with isValid and matching tag 
     for (int j = 0; j < associativity; j += 1) {
-
         if ((*cache)[setI][j].isValid && (*cache)[setI][j].tag == tag) {
             (*cache)[setI][j].timestamp = timestamp;
             return 0; // hit
@@ -192,11 +191,9 @@ int main(int argc, char* argv[]) {
     addr_t addr;
     int bytes;
 
-    addr_t setIndex;
-    addr_t tag;
+    addr_t setIndex, tag;
     
-    int result1;
-    int result2;
+    int result1, result2;
     unsigned long timestamp = 0;
     
     while (fscanf(file, " %c %llx,%d", &cmd, &addr, &bytes) == 3) {
