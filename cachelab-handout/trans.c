@@ -23,22 +23,71 @@ char transpose_submit_desc[] = "Transpose submission";
 void transpose_submit(int M, int N, int A[N][M], int B[M][N])
 {   
     int i, j, i1, j1;
+    int blkSize32 = 8;
+    int blkSize64 = 4;
+    int blkSize61 = 8;
 
-    // iteration thru blocks
-    for (i = 0; i < M; i += 8) {
-        for (j = 0; j < M; j += 8) {
+    if (M == 32) {
+        // iteration thru blocks
+        for (j = 0; j < M; j += blkSize32) {
+            for (i = 0; i < M; i += blkSize32) {
 
-            // iteration thru row of blocks
-            for (i1 = i; i1 < i + 8; i1 += 1) {
+                // iteration thru row of blocks
+                for (i1 = i; i1 < i + blkSize32; i1 += 1) {
 
-                // iteration thru col of blocks
-                for (j1 = j; j1 < j + 8; j1 += 1) {
-                    if (i1 != j1) {
-                        B[j1][i1] = A[i1][j1];
+                    // iteration thru col of blocks
+                    for (j1 = j; j1 < j + blkSize32; j1 += 1) {
+
+                        if (i1 != j1) {
+                            B[j1][i1] = A[i1][j1];
+                        }
+                    }
+                    // filling diagonal
+                    if (i == j) {
+                        B[i1][i1] = A[i1][i1];
                     }
                 }
-                if (i == j) {
-                    B[i1][i1] = A[i1][i1];
+            }
+        }
+    } else if (M == 64) {
+        // iteration thru blocks
+        for (j = 0; j < M; j += blkSize64) {
+            for (i = 0; i < M; i += blkSize64) {
+
+                // iteration thru row of blocks
+                for (i1 = i; i1 < i + blkSize64; i1 += 1) {
+
+                    // iteration thru col of blocks
+                    for (j1 = j; j1 < j + blkSize64; j1 += 1) {
+
+                        if (i1 != j1) {
+                            B[j1][i1] = A[i1][j1];
+                        }
+                    }
+                    if (i == j) {
+                        B[i1][i1] = A[i1][i1];
+                    }
+                }
+            }
+        }
+    } else if (M == 61) {
+        // iteration thru blocks
+        for (j = 0; j < M; j += blkSize61) {
+            for (i = 0; i < N; i += blkSize61) {
+
+                // iteration thru row of blocks
+                for (i1 = i; i1 < i + blkSize61 && (i1 < N); i1 += 1) {
+
+                    // iteration thru col of blocks
+                    for (j1 = j; j1 < j + blkSize61 && (j1 < M); j1 += 1) {
+                        
+                        if (i1 != j1) {
+                            B[j1][i1] = A[i1][j1];
+                        }
+                    }
+                    if (i == j) {
+                        B[i1][i1] = A[i1][i1];
+                    }
                 }
             }
         }
