@@ -1,6 +1,6 @@
-# CS-APP3e Labs Self-Study
+# CS-APP3e Self-Study
 
-### Progress:
+### Lab Progress:
 - Data Lab ✓
 - Bomb Lab ✓
 - Attack Lab ✓
@@ -11,7 +11,7 @@
 
 Done in conjuction with lectures from [CMU's 15-213](https://www.cs.cmu.edu/afs/cs/academic/class/15213-f15/www/schedule.html) and the [CS:APP3e textbook](http://csapp.cs.cmu.edu/3e/students.html).
 
-### CMU 15-213 Progress:
+### Lecture Progress:
 
 - Bits, Bytes, and Ints: Part 1 ✓
 - Bits, Bytes, and Ints: Part 2 ✓
