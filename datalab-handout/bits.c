@@ -167,8 +167,8 @@ int tmin(void) {
  *   Rating: 1
  */
 int isTmax(int x) {
-	// Only two value of x where first condition is true: -1 and Tmax
-	// & operator only returns 1 if x = Tmax
+	// Only two values of x where first condition is true: -1 and Tmax
+	// Second condition only true if x = Tmax
 	return !~(x ^ (x + 1)) & !!(x + 1);
 }
 /* 
@@ -180,8 +180,12 @@ int isTmax(int x) {
  *   Rating: 2
  */
 int allOddBits(int x) {
+	// mask =     0101 0101 0101 0101 0101 0101 0101 0101
+	// x must be  1?1? 1?1? 1?1? 1?1? 1?1? 1?1? 1?1? 1?1?
+	// x | mask = 1111 1111 1111 1111 1111 1111 1111 1111
 	int mask = 0x55 + (0x55 << 8) + (0x55 << 16) + (0x55 << 24);
 	return !~(x | mask);
+
 }
 /* 
  * negate - return -x 
@@ -216,6 +220,12 @@ int isAsciiDigit(int x) {
  */
 int conditional(int x, int y, int z) {
 	// evaluates to y if the value of x is true, otherwise to z
+
+	// if x = 0, ~!!x = ~0x00000000 = 0xffffffff
+	// then x = 0xffffffff + 1 = 0x00000000
+
+	// if x != 0, ~!!x = 0xfffffffe
+	// then ~!!x + 1 = 0xffffffff
 	x = ~!!x + 1;
     return (y & x) | (z & ~x);
 }
@@ -243,7 +253,8 @@ int isLessOrEqual(int x, int y) {
 int logicalNeg(int x) {
 	return (~x >> 31) & (~(~x + 1) >> 31) & 0x01;
 }
-/* howManyBits - return the minimum number of bits required to represent x in
+/* 
+ * howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
  *  Examples: howManyBits(12) = 5
  *            howManyBits(298) = 10
@@ -256,7 +267,40 @@ int logicalNeg(int x) {
  *  Rating: 4
  */
 int howManyBits(int x) {
-	return 0;
+	// The following are equal:
+	// finding the most significant bit of 1 for a positive number
+	// finding the most significant bit of 0 for a negative number
+	
+	// if negative, first conditional returns ~x, second conditional 0
+	// if positive, second conditional returns x, first conditional 0
+	int negMask = 0x80 << 24;
+	x = ~x & ((x & negMask) >> 31) | x & (~(x & negMask) >> 31);
+
+	int count = 1;
+	int bit16, bit8, bit4, bit2, bit1;
+	// Brute force approach:
+	// shift right by 1 until it becomes 0, incrementing a count while doing this
+	// shift right from 1 to 31 individual times
+
+	// If 1 in x[16-31], bit16 = 16. Else, bit16 = 0
+	// Thus, search in upper half if bit there, else keep x as same value
+	bit16 = !!(x >> 16) << 4;
+	x = x >> bit16;
+
+	bit8 = !!(x >> 8) << 3;
+	x = x >> bit8;
+
+	bit4 = !!(x >> 4) << 2;
+	x = x >> bit4;
+
+	bit2 = !!(x >> 2) << 1;
+	x = x >> bit2;
+
+	bit1 = !!(x >> 1);
+	x = x >> bit1;
+
+	return count + bit16 + bit8 + bit4 + bit2 + bit1 + x;
+	
 }
 //float
 /* 
