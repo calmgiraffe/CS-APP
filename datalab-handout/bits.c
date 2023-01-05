@@ -320,8 +320,8 @@ unsigned floatScale2(unsigned uf) {
 	// else, increment exp by 1
 	
 	int expMask = 0x7f800000;
-	int signMask = 0x80000000;
-	int expIncrement = 0x00800000;
+	int signMask = 0x80 << 24;
+	int expIncrement = 0x80 << 16;
 
 	if (!(uf & expMask)) {
 		int sign = uf & signMask;
@@ -342,21 +342,46 @@ unsigned floatScale2(unsigned uf) {
  *   Anything out of range (including NaN and infinity) should return
  *   0x80000000u.
  *   Legal ops: Any integer/unsigned operations incl. ||, &&. also if, while
+ *   (Don't use float data type)
  *   Max ops: 30
  *   Rating: 4
  */
 int floatFloat2Int(unsigned uf) {
-	int expMask = 0x7f800000; // 0111 1111 1000 000...0
+	int NaN = 0x80 << 24;
 	int bias = 127;
-	int exp = (uf & expMask) >> 23;
-	printf("%i\n", exp);
 
-	if (uf == 0x80000000 || exp == 0x0 || exp - bias < 1) {
-		return 0x0;
-	} else if (exp > 32) {
-		return 0x80000000u;
+	int expMask = ((0x7f << 8) + 0x80) << 16; // 0x7f800000
+	int fracMask = (0x7f << 16) + (0xff << 8) + 0xff;  // 0x007fffff
+	int signMask = 0x80 << 24;
+	int leadingOne = 0x80 << 16;
+	
+	int exp = (uf & expMask) >> 23;
+	int frac = (uf & fracMask);
+	int mantissa = leadingOne + frac;
+	int sign = uf & signMask;
+	
+	// when exp = 0x7f and frac = 00..00, v = 1
+	if (exp < 127) {
+		return 0;
+	} else if (exp == 255) { // if exp = 0xff
+		return NaN; 
 	} else {
-		
+		int E = exp - bias;
+		// decimal point is initially between the 23rd and 24th bit
+		// rounding towards zero is same as returning bits left of that decimal
+		// however, must first shift left or right according to value of E
+		if (E <= 23) {
+			mantissa = mantissa >> (23 - E);
+		} else if (E > 23 && E < 32) {
+			mantissa = mantissa << (E - 23);
+		} else {
+			// If shifting left more than 9 bits, the leading one is truncated and there is int overflow
+			return NaN;
+		}
+		if (sign) {
+			mantissa = ~mantissa + 1;
+		}
+		return mantissa;
 	}
 }
 /* 
