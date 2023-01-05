@@ -398,5 +398,26 @@ int floatFloat2Int(unsigned uf) {
  *   Rating: 4
  */
 unsigned floatPower2(int x) {
-		return 2;
+	// always returns positive
+	// smallest float is 2^-149 and largest is 2^127
+	if (x < -149) {
+		return 0;
+	} else if (x > 127) {
+		return 0x7f800000;
+	} else {
+		if (x < -126) {
+			// map x = [-126, 149] to bit shift
+			// x = -149 -> 0x00000001
+			// x = -148 -> 0x00000002
+			// x = -148 -> 0x00000004
+			// ...
+			// x = -127 -> 0x00700000
+			return 0x01 << 149 + x;
+
+		} else { // x >= -126
+			// mantissa is 0, exp = x + bias = x + 127
+			int exp = x + 127;
+			return exp << 23;
+		}
+	}
 }
