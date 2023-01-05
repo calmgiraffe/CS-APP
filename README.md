@@ -9,7 +9,33 @@ Shell Lab
 Malloc Lab
 Proxy Lab
 
-Done in conjuction with lectures and notes from CMU's 15-213: https://www.cs.cmu.edu/afs/cs/academic/class/15213-f15/www/schedule.html
+Done in conjuction with lectures and notes from CMU's 15-213 and the CS:APP3e textbook:
+https://www.cs.cmu.edu/afs/cs/academic/class/15213-f15/www/schedule.html
 
-CMU's 15-213
-Progress
+CMU 15-213 Progress:
+
+Bits, Bytes, and Ints: Part 1 ✓
+Bits, Bytes, and Ints: Part 2 ✓
+Floating Point ✓
+Machine Prog: Basics ✓
+Machine Prog: Control ✓
+Machine Prog: Procedures ✓
+Machine Prog: Data ✓
+Machine Prog: Advanced ✓
+Code Optimization ✓
+The Memory Hierarchy ✓
+Cache Memories ✓
+Linking
+ECF: Exceptions & Processes
+ECF: Signals
+System Level I/O
+Virtual Memory: Concepts
+Virtual Memory: Systems	
+Storage Allocation: Basic
+Storage Allocation: Advanced
+Network Programming: Part 1
+Network Programming: Part 2
+Concurrent Programming
+Synchronization: Basic
+Synchronization: Advanced
+Thread-Level Parallelism
