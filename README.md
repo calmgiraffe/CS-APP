@@ -1,4 +1,4 @@
-# CS-APP3e Self-Study
+## CS-APP3e Self-Study
 
 ### Lab Progress:
 - Data Lab ✓
