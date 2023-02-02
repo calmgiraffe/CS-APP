@@ -134,10 +134,11 @@ int main(int argc, char **argv) {
             printf("%s", prompt);
             fflush(stdout);
         }
+        /* Reads MAXLINE chars from stdin and stores them in cmdline buffer */
         if ((fgets(cmdline, MAXLINE, stdin) == NULL) && ferror(stdin))
             app_error("fgets error");
 
-        if (feof(stdin)) { /* End of file (ctrl-d) */
+        if (feof(stdin)) { /* End of file (ctrl-d pressed) */
             fflush(stdout);
             exit(0);
         }
@@ -161,19 +162,37 @@ int main(int argc, char **argv) {
  * when we type ctrl-c (ctrl-z) at the keyboard.  
 */
 void eval(char *cmdline) {
-    // if built in command, execute immediately
+    // need to parse cmdline and store in argv
+
+    pid_t pid;
+    char *argv[MAXARGS];
+    int bg = parseline(cmdline, argv);
+
+    if (argv[0] == NULL) { // return if no commands
+        return;
+    }
+
 
     if (strcmp(cmdline, "quit") == 0) {
+        // terminate shell program and reduce it to zombie
         exit(0);
     } else if (strcmp(cmdline, "jobs") == 0) {
-        // jobs()
+        listjobs(jobs);
     } else if (strcmp(cmdline, "bg") == 0) {
+        // change a stopped background job to a running background job
         // bg()
-    } else if (strcmp(cmdline,"fg") == 0) {
+    } else if (strcmp(cmdline, "fg") == 0) {
+        // change a stopped or running background job to one running in the foreground
         // fg()
     } else {
         // else, is pathname of executable file
-        // fork a child process and run job in context of child
+        // fork a child process and run job in context of 
+        
+        pid_t pid = Fork();
+        if (pid == 0) {
+            return;
+        }
+        
     }
     return;
 }
@@ -500,5 +519,84 @@ void sigquit_handler(int sig) {
     exit(1);
 }
 
+/*********************************************
+ * Wrappers for Unix process control functions
+ ********************************************/
 
+/* $begin forkwrapper */
+pid_t Fork(void) 
+{
+    pid_t pid;
 
+    if ((pid = fork()) < 0)
+	unix_error("Fork error");
+    return pid;
+}
+/* $end forkwrapper */
+
+void Execve(const char *filename, char *const argv[], char *const envp[]) 
+{
+    if (execve(filename, argv, envp) < 0)
+	unix_error("Execve error");
+}
+
+/* $begin wait */
+pid_t Wait(int *status) 
+{
+    pid_t pid;
+
+    if ((pid  = wait(status)) < 0)
+	unix_error("Wait error");
+    return pid;
+}
+/* $end wait */
+
+pid_t Waitpid(pid_t pid, int *iptr, int options) 
+{
+    pid_t retpid;
+
+    if ((retpid  = waitpid(pid, iptr, options)) < 0) 
+	unix_error("Waitpid error");
+    return(retpid);
+}
+
+/* $begin kill */
+void Kill(pid_t pid, int signum) 
+{
+    int rc;
+
+    if ((rc = kill(pid, signum)) < 0)
+	unix_error("Kill error");
+}
+/* $end kill */
+
+void Pause() 
+{
+    (void)pause();
+    return;
+}
+
+unsigned int Sleep(unsigned int secs) 
+{
+    unsigned int rc;
+
+    if ((rc = sleep(secs)) < 0)
+	unix_error("Sleep error");
+    return rc;
+}
+
+unsigned int Alarm(unsigned int seconds) {
+    return alarm(seconds);
+}
+ 
+void Setpgid(pid_t pid, pid_t pgid) {
+    int rc;
+
+    if ((rc = setpgid(pid, pgid)) < 0)
+	unix_error("Setpgid error");
+    return;
+}
+
+pid_t Getpgrp(void) {
+    return getpgrp();
+}

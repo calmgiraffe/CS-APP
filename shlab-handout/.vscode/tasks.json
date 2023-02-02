@@ -6,8 +6,6 @@
             "command": "/usr/bin/gcc-9",
             "args": [
                 "-fdiagnostics-color=always",
-                "-Wall",
-                "-02",
                 "-g",
                 "${file}",
                 "-o",
