@@ -166,36 +166,25 @@ int main(int argc, char **argv) {
  * when we type ctrl-c (ctrl-z) at the keyboard.  
 */
 void eval(char *cmdline) {
-    // need to parse cmdline and store in argv
-
     pid_t pid;
     char* argv[MAXARGS]; // note: array of pointers
-    int runBackground = parseline(cmdline, argv);
 
-    if (argv[0] == NULL) { // return if no commands
+    // parse cmdline into array of pointers argv
+    int runBackground = parseline(cmdline, argv); 
+
+    // return if no commands
+    if (argv[0] == NULL) { 
         return;
     }
-
-    if (strcmp(argv[0], "quit") == 0) {
-        // terminate shell program and reduce it to zombie
-        exit(0);
-    } else if (strcmp(argv[0], "jobs") == 0) {
-        listjobs(jobs);
-    } else if (strcmp(argv[0], "bg") == 0) {
-        // change a stopped background job to a running background job
-        // bg <job>
-    } else if (strcmp(argv[0], "fg") == 0) {
-        // change a stopped or running background job to one running in the foreground
-        // fg <job>
-    } else {
-        // else, is pathname of executable file
-        // fork a child process and run job in the child process's context
-        if ((pid = Fork()) == 0) { // child
+    /* If not built-in cmd, is pathname of executable file.
+    Fork child process and run new process in its context. */
+    if (!builtin_cmd(argv)) {
+        if ((pid = Fork()) == 0) {
             Execve(argv[0], argv, environ);
-            exit(0);
         }
-
-        if (!runBackground) { // suspend foreground job and wait for child to complete
+        /* If foreground job wanted (no '&' at end), suspend current foreground job,
+        wait for child to complete, then resume foreground job */
+        if (!runBackground) { 
             int status;
             Waitpid(pid, &status, 0);
 
@@ -262,16 +251,29 @@ int parseline(const char *cmdline, char **argv) {
 
 /* 
  * builtin_cmd - If the user has typed a built-in command then execute
- *    it immediately.  
+ * it immediately. Built in commands are quit, jobs, bg, fg. Returns 0
+ * (indicating not a built in command) if single '&' typed in.
  */
 int builtin_cmd(char **argv) {
-    return 0;     /* not a builtin command */
+    if (!strcmp(argv[0], "quit")) {
+        exit(0);
+    } else if (!strcmp(argv[0], "jobs")) {
+        listjobs(jobs);
+    } else if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
+        do_bgfg(argv);
+    } else if (!strcmp(argv[0], "&")) {
+        return 1;
+    } else {
+        return 0;     /* not a builtin command */
+    }
 }
 
 /* 
  * do_bgfg - Execute the builtin bg and fg commands
  */
 void do_bgfg(char **argv) {
+    // bg <job>
+    // fg <job>
     return;
 }
 
@@ -532,8 +534,7 @@ void sigquit_handler(int sig) {
  * Wrappers for Unix process control functions
  ********************************************/
 
-pid_t Fork(void) 
-{
+pid_t Fork(void) {
     pid_t pid;
 
     if ((pid = fork()) < 0)
@@ -541,14 +542,12 @@ pid_t Fork(void)
     return pid;
 }
 
-void Execve(const char *filename, char *const argv[], char *const envp[]) 
-{
+void Execve(const char *filename, char *const argv[], char *const envp[]) {
     if (execve(filename, argv, envp) < 0)
 	unix_error("Execve error");
 }
 
-pid_t Wait(int *status) 
-{
+pid_t Wait(int *status) {
     pid_t pid;
 
     if ((pid  = wait(status)) < 0)
@@ -556,8 +555,7 @@ pid_t Wait(int *status)
     return pid;
 }
 
-pid_t Waitpid(pid_t pid, int *iptr, int options) 
-{
+pid_t Waitpid(pid_t pid, int *iptr, int options) {
     pid_t retpid;
 
     if ((retpid  = waitpid(pid, iptr, options)) < 0) 
@@ -565,22 +563,19 @@ pid_t Waitpid(pid_t pid, int *iptr, int options)
     return(retpid);
 }
 
-void Kill(pid_t pid, int signum) 
-{
+void Kill(pid_t pid, int signum) {
     int rc;
 
     if ((rc = kill(pid, signum)) < 0)
 	unix_error("Kill error");
 }
 
-void Pause() 
-{
+void Pause() {
     (void)pause();
     return;
 }
 
-unsigned int Sleep(unsigned int secs) 
-{
+unsigned int Sleep(unsigned int secs) {
     unsigned int rc;
 
     if ((rc = sleep(secs)) < 0)
