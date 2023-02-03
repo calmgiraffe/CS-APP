@@ -85,6 +85,10 @@ void app_error(char *msg);
 typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
 
+pid_t Fork(void);
+void Execve(const char *filename, char *const argv[], char *const envp[]);
+pid_t Waitpid(pid_t pid, int *iptr, int options);
+
 /*
  * main - The shell's main routine 
  */
@@ -165,34 +169,39 @@ void eval(char *cmdline) {
     // need to parse cmdline and store in argv
 
     pid_t pid;
-    char *argv[MAXARGS];
-    int bg = parseline(cmdline, argv);
+    char* argv[MAXARGS]; // note: array of pointers
+    int runBackground = parseline(cmdline, argv);
 
     if (argv[0] == NULL) { // return if no commands
         return;
     }
 
-
-    if (strcmp(cmdline, "quit") == 0) {
+    if (strcmp(argv[0], "quit") == 0) {
         // terminate shell program and reduce it to zombie
         exit(0);
-    } else if (strcmp(cmdline, "jobs") == 0) {
+    } else if (strcmp(argv[0], "jobs") == 0) {
         listjobs(jobs);
-    } else if (strcmp(cmdline, "bg") == 0) {
+    } else if (strcmp(argv[0], "bg") == 0) {
         // change a stopped background job to a running background job
-        // bg()
-    } else if (strcmp(cmdline, "fg") == 0) {
+        // bg <job>
+    } else if (strcmp(argv[0], "fg") == 0) {
         // change a stopped or running background job to one running in the foreground
-        // fg()
+        // fg <job>
     } else {
         // else, is pathname of executable file
-        // fork a child process and run job in context of 
-        
-        pid_t pid = Fork();
-        if (pid == 0) {
-            return;
+        // fork a child process and run job in the child process's context
+        if ((pid = Fork()) == 0) { // child
+            Execve(argv[0], argv, environ);
+            exit(0);
         }
-        
+
+        if (!runBackground) { // suspend foreground job and wait for child to complete
+            int status;
+            Waitpid(pid, &status, 0);
+
+        } else { // background job
+            printf("%d %s", pid, cmdline);
+        }
     }
     return;
 }
@@ -523,7 +532,6 @@ void sigquit_handler(int sig) {
  * Wrappers for Unix process control functions
  ********************************************/
 
-/* $begin forkwrapper */
 pid_t Fork(void) 
 {
     pid_t pid;
@@ -532,7 +540,6 @@ pid_t Fork(void)
 	unix_error("Fork error");
     return pid;
 }
-/* $end forkwrapper */
 
 void Execve(const char *filename, char *const argv[], char *const envp[]) 
 {
@@ -540,7 +547,6 @@ void Execve(const char *filename, char *const argv[], char *const envp[])
 	unix_error("Execve error");
 }
 
-/* $begin wait */
 pid_t Wait(int *status) 
 {
     pid_t pid;
@@ -549,7 +555,6 @@ pid_t Wait(int *status)
 	unix_error("Wait error");
     return pid;
 }
-/* $end wait */
 
 pid_t Waitpid(pid_t pid, int *iptr, int options) 
 {
@@ -560,7 +565,6 @@ pid_t Waitpid(pid_t pid, int *iptr, int options)
     return(retpid);
 }
 
-/* $begin kill */
 void Kill(pid_t pid, int signum) 
 {
     int rc;
@@ -568,7 +572,6 @@ void Kill(pid_t pid, int signum)
     if ((rc = kill(pid, signum)) < 0)
 	unix_error("Kill error");
 }
-/* $end kill */
 
 void Pause() 
 {
