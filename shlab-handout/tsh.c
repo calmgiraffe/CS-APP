@@ -179,17 +179,41 @@ void eval(char *cmdline) {
     /* If not built-in cmd, is pathname of executable file.
     Fork child process and run new process in its context. */
     if (!builtin_cmd(argv)) {
-        if ((pid = Fork()) == 0) {
+        sigset_t mask, prevMask;
+        
+        Sigemptyset(&mask);
+        Sigaddset(&mask, SIGCHLD);
+
+        // Block
+        Sigprocmask(SIG_BLOCK, &mask, &prevMask);
+
+        if ((pid = Fork()) == 0) { // child process
+            /* Child process logic */
+            
+            // unblock SIGCHLD
+            
+
             Execve(argv[0], argv, environ);
         }
+        /* Parent process logic */
+
+        // add job to jobs list? pid, job ID, state (UNDEF, BG, FG, ST), cmdline
+
         /* If foreground job wanted (no '&' at end), suspend current foreground job,
         wait for child to complete, then resume foreground job */
         if (!runBackground) { 
             int status;
             Waitpid(pid, &status, 0);
-
-        } else { // background job
-            printf("%d %s", pid, cmdline);
+        } 
+        /* Else, background job */
+        else {
+            // Else, background job
+            // shell runs in the foreground in the meantime
+            
+            // parent process uses signal handler to catch termination of child?
+            // then remove from jobs list?
+            // addjob()
+            // unblock
         }
     }
     return;
@@ -263,9 +287,8 @@ int builtin_cmd(char **argv) {
         do_bgfg(argv);
     } else if (!strcmp(argv[0], "&")) {
         return 1;
-    } else {
-        return 0;     /* not a builtin command */
     }
+    return 0; /* not a builtin command */
 }
 
 /* 
@@ -296,15 +319,23 @@ void waitfg(pid_t pid) {
  *     currently running children to terminate.  
  */
 void sigchld_handler(int sig) {
+
+
     return;
 }
 
 /* 
- * sigint_handler - The kernel sends a SIGINT to the shell whenver the
+ * sigint_handler - The kernel sends a SIGINT to the shell whenever the
  *    user types ctrl-c at the keyboard.  Catch it and send it along
  *    to the foreground job.  
  */
 void sigint_handler(int sig) {
+    // SIGNIT sent to every process in foreground group
+    // kill process
+    // if child, need to reap
+    // note: signals are not queued
+    // iterate through jobs list?
+    // idk
     return;
 }
 
@@ -597,4 +628,74 @@ void Setpgid(pid_t pid, pid_t pgid) {
 
 pid_t Getpgrp(void) {
     return getpgrp();
+}
+
+/************************************
+ * Wrappers for Unix signal functions 
+ ***********************************/
+
+/* $begin sigaction */
+handler_t *Signal(int signum, handler_t *handler) 
+{
+    struct sigaction action, old_action;
+
+    action.sa_handler = handler;  
+    sigemptyset(&action.sa_mask); /* Block sigs of type being handled */
+    action.sa_flags = SA_RESTART; /* Restart syscalls if possible */
+
+    if (sigaction(signum, &action, &old_action) < 0)
+	unix_error("Signal error");
+    return (old_action.sa_handler);
+}
+/* $end sigaction */
+
+void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
+{
+    if (sigprocmask(how, set, oldset) < 0)
+	unix_error("Sigprocmask error");
+    return;
+}
+
+void Sigemptyset(sigset_t *set)
+{
+    if (sigemptyset(set) < 0)
+	unix_error("Sigemptyset error");
+    return;
+}
+
+void Sigfillset(sigset_t *set)
+{ 
+    if (sigfillset(set) < 0)
+	unix_error("Sigfillset error");
+    return;
+}
+
+void Sigaddset(sigset_t *set, int signum)
+{
+    if (sigaddset(set, signum) < 0)
+	unix_error("Sigaddset error");
+    return;
+}
+
+void Sigdelset(sigset_t *set, int signum)
+{
+    if (sigdelset(set, signum) < 0)
+	unix_error("Sigdelset error");
+    return;
+}
+
+int Sigismember(const sigset_t *set, int signum)
+{
+    int rc;
+    if ((rc = sigismember(set, signum)) < 0)
+	unix_error("Sigismember error");
+    return rc;
+}
+
+int Sigsuspend(const sigset_t *set)
+{
+    int rc = sigsuspend(set); /* always returns -1 */
+    if (errno != EINTR)
+        unix_error("Sigsuspend error");
+    return rc;
 }
