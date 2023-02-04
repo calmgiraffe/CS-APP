@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <errno.h>
+#include "csapp.h"
 
 /* Misc manifest constants */
 #define MAXLINE    1024   /* max line size */
@@ -84,10 +85,6 @@ void unix_error(char *msg);
 void app_error(char *msg);
 typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
-
-pid_t Fork(void);
-void Execve(const char *filename, char *const argv[], char *const envp[]);
-pid_t Waitpid(pid_t pid, int *iptr, int options);
 
 /*
  * main - The shell's main routine 
@@ -179,41 +176,48 @@ void eval(char *cmdline) {
     /* If not built-in cmd, is pathname of executable file.
     Fork child process and run new process in its context. */
     if (!builtin_cmd(argv)) {
-        sigset_t mask, prevMask;
+        sigset_t mask, prev_mask;
         
+
+        // Block SIGCHLD before forking new process
         Sigemptyset(&mask);
         Sigaddset(&mask, SIGCHLD);
+        Sigprocmask(SIG_BLOCK, &mask, &prev_mask);
 
-        // Block
-        Sigprocmask(SIG_BLOCK, &mask, &prevMask);
-
-        if ((pid = Fork()) == 0) { // child process
+        if ((pid = Fork()) == 0) {
             /* Child process logic */
             
             // unblock SIGCHLD
-            
+            Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
 
+            // run new process
             Execve(argv[0], argv, environ);
         }
         /* Parent process logic */
 
-        // add job to jobs list? pid, job ID, state (UNDEF, BG, FG, ST), cmdline
-
-        /* If foreground job wanted (no '&' at end), suspend current foreground job,
+        /* If foreground job wanted (no '&' at end), suspend shell,
         wait for child to complete, then resume foreground job */
-        if (!runBackground) { 
+        if (!runBackground) {
+
+            // add job to jobs list as foreground
+            addjob(jobs, pid, FG, cmdline);
+
+            // wait for foreground job to finish
             int status;
-            Waitpid(pid, &status, 0);
+            if (waitpid(pid, &status, 0) == pid) {
+                if (!WIFEXITED(status)) {
+                    unix_error("waitpid error: foreground task did not terminate properly");
+                }
+            }
+            deletejob(jobs, pid);
         } 
-        /* Else, background job */
+        /* Else, background job -> shell continues to run */
         else {
-            // Else, background job
-            // shell runs in the foreground in the meantime
-            
-            // parent process uses signal handler to catch termination of child?
-            // then remove from jobs list?
-            // addjob()
-            // unblock
+            // add job to jobs list as background
+            addjob(jobs, pid, BG, cmdline);
+
+            // unblock SIGCHLD
+            Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
         }
     }
     return;
@@ -319,8 +323,16 @@ void waitfg(pid_t pid) {
  *     currently running children to terminate.  
  */
 void sigchld_handler(int sig) {
+    int old_errno = errno;
 
+    while (waitpid(-1, NULL, 0) > 0) {
+        Sio_puts("Handler reaped child\n");
+    }
+    if (errno != ECHILD) {
+        Sio_error("waitpid error");
+    }
 
+    errno = old_errno;
     return;
 }
 
@@ -634,20 +646,6 @@ pid_t Getpgrp(void) {
  * Wrappers for Unix signal functions 
  ***********************************/
 
-/* $begin sigaction */
-handler_t *Signal(int signum, handler_t *handler) 
-{
-    struct sigaction action, old_action;
-
-    action.sa_handler = handler;  
-    sigemptyset(&action.sa_mask); /* Block sigs of type being handled */
-    action.sa_flags = SA_RESTART; /* Restart syscalls if possible */
-
-    if (sigaction(signum, &action, &old_action) < 0)
-	unix_error("Signal error");
-    return (old_action.sa_handler);
-}
-/* $end sigaction */
 
 void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {
@@ -698,4 +696,104 @@ int Sigsuspend(const sigset_t *set)
     if (errno != EINTR)
         unix_error("Sigsuspend error");
     return rc;
+}
+
+/*************************************************************
+ * The Sio (Signal-safe I/O) package - simple reentrant output
+ * functions that are safe for signal handlers.
+ *************************************************************/
+
+/* Private sio functions */
+
+/* $begin sioprivate */
+/* sio_reverse - Reverse a string (from K&R) */
+static void sio_reverse(char s[])
+{
+    int c, i, j;
+
+    for (i = 0, j = strlen(s)-1; i < j; i++, j--) {
+        c = s[i];
+        s[i] = s[j];
+        s[j] = c;
+    }
+}
+
+/* sio_ltoa - Convert long to base b string (from K&R) */
+static void sio_ltoa(long v, char s[], int b) 
+{
+    int c, i = 0;
+    int neg = v < 0;
+
+    if (neg)
+	v = -v;
+
+    do {  
+        s[i++] = ((c = (v % b)) < 10)  ?  c + '0' : c - 10 + 'a';
+    } while ((v /= b) > 0);
+
+    if (neg)
+	s[i++] = '-';
+
+    s[i] = '\0';
+    sio_reverse(s);
+}
+
+/* sio_strlen - Return length of string (from K&R) */
+static size_t sio_strlen(char s[])
+{
+    int i = 0;
+
+    while (s[i] != '\0')
+        ++i;
+    return i;
+}
+/* $end sioprivate */
+
+/* Public Sio functions */
+/* $begin siopublic */
+
+ssize_t sio_puts(char s[]) /* Put string */
+{
+    return write(STDOUT_FILENO, s, sio_strlen(s)); //line:csapp:siostrlen
+}
+
+ssize_t sio_putl(long v) /* Put long */
+{
+    char s[128];
+    
+    sio_ltoa(v, s, 10); /* Based on K&R itoa() */  //line:csapp:sioltoa
+    return sio_puts(s);
+}
+
+void sio_error(char s[]) /* Put error message and exit */
+{
+    sio_puts(s);
+    _exit(1);                                      //line:csapp:sioexit
+}
+/* $end siopublic */
+
+/*******************************
+ * Wrappers for the SIO routines
+ ******************************/
+ssize_t Sio_putl(long v)
+{
+    ssize_t n;
+  
+    if ((n = sio_putl(v)) < 0)
+	sio_error("Sio_putl error");
+    return n;
+}
+
+ssize_t Sio_puts(char s[])
+{
+    ssize_t n;
+  
+    if ((n = sio_puts(s)) < 0)
+	sio_error("Sio_puts error");
+    return n;
+}
+
+void Sio_error(char s[])
+{
+    sio_error(s);
 }
