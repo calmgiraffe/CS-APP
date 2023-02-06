@@ -322,7 +322,7 @@ void sigchld_handler(int sig) {
     }
 
     if (errno != ECHILD) {
-        Sio_error("waitpid error");
+        Sio_error("sigchld_handler error");
     }
     errno = old_errno;
     return;
@@ -332,9 +332,24 @@ void sigchld_handler(int sig) {
  *    user types ctrl-c at the keyboard.  Catch it and send it along
  *    to the foreground job. */
 void sigint_handler(int sig) {
-    // SIGNIT sent to every process in foreground group
 
-    Sigkill()
+    // Store current errno and block all signals
+    pid_t pid;
+    int old_errno = errno;
+    sigset_t all_mask, prev_mask;
+    Sigfillset(&all_mask);
+    Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
+
+    // Delete foreground job if it exists, send SIGNIT to every foreground group process
+    if ((pid = fgpid(jobs)) > 0) {
+        deletejob(jobs, pid);
+        Kill(-pid, SIGINT);
+    }
+
+    // Unblock all signals and restore errno
+    Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+    errno = old_errno;
+
     return;
 }
 
@@ -342,6 +357,23 @@ void sigint_handler(int sig) {
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
  *     foreground job by sending it a SIGTSTP. */
 void sigtstp_handler(int sig) {
+
+    // Store current errno and block all signals
+    pid_t pid;
+    int old_errno = errno;
+    sigset_t all_mask, prev_mask;
+    Sigfillset(&all_mask);
+    Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
+
+    // Stop foreground job if it exists, send SIGSTOP to every foreground group process
+    if ((pid = fgpid(jobs)) > 0) {
+        Kill(-pid, SIGSTOP);
+    }
+
+    // Unblock all signals and restore errno
+    Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+    errno = old_errno;
+
     return;
 }
 
