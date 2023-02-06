@@ -181,6 +181,7 @@ void eval(char *cmdline) {
         
         if ((pid = Fork()) == 0) {
             /* Child process logic */
+            Setpgid(0, 0); // Put child process in its own process group 
             Sigprocmask(SIG_SETMASK, &prev_mask1, NULL); // unblock SIGCHLD
             Execve(argv[0], argv, environ); // run new process
         }
@@ -201,9 +202,8 @@ void eval(char *cmdline) {
             waitfg(pid);
         } else {
             /* Background job logic */
-            // Put current process PID in a new 
-            // Setpgid(0, 0);
-            // printf("[%d] (%d) %s\n", pid2jid(pid), pid, buf);
+            printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
+            fflush(stdout);
         }
     }
     return;
@@ -349,6 +349,11 @@ void sigchld_handler(int sig) {
     pid_t pid;
     sigset_t all_mask, prev_mask;
     Sigfillset(&all_mask);
+
+
+    // can have one or more bg tasks, only one fg task
+    // for fg task, need to wait for it to complete
+    // for bg task, 
     
     int old_errno = errno;
     while ((pid = waitpid(-1, NULL, 0)) > 0) {
