@@ -181,9 +181,11 @@ void eval(char *cmdline) {
         
         if ((pid = Fork()) == 0) {
             /* Child process logic */
-            Setpgid(0, 0); // Put child process in its own process group 
-            Sigprocmask(SIG_SETMASK, &prev_mask1, NULL); // unblock SIGCHLD
-            Execve(argv[0], argv, environ); // run new process
+            if (runBackground) {
+                Setpgid(0, 0);
+            }
+            Sigprocmask(SIG_SETMASK, &prev_mask1, NULL);
+            Execve(argv[0], argv, environ);
         }
         /* Parent process logic */
         int bgfg = (runBackground) ? BG : FG;
@@ -346,24 +348,20 @@ void waitfg(pid_t pid) {
  *     available zombie children, but doesn't wait for any other
  *     currently running children to terminate. */
 void sigchld_handler(int sig) {
+    int old_errno = errno;
+    int status;
+
     pid_t pid;
     sigset_t all_mask, prev_mask;
     Sigfillset(&all_mask);
 
-
-    // can have one or more bg tasks, only one fg task
-    // for fg task, need to wait for it to complete
-    // for bg task, 
-    
-    int old_errno = errno;
-    while ((pid = waitpid(-1, NULL, 0)) > 0) {
+    // reap all available zombies, once there are no more zombies, waitpid
+    // returns 0 or -1, and handler loop stops
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
         // Sio_puts("Handler reaped child\n");
         Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
         deletejob(jobs, pid);
         Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-    }
-    if (errno != ECHILD) {
-        Sio_error("sigchld_handler error");
     }
     errno = old_errno;
     return;
