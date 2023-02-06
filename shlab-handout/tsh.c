@@ -65,7 +65,7 @@ void sigchld_handler(int sig);
 void sigtstp_handler(int sig);
 void sigint_handler(int sig);
 
-/* Here are helper routines that we've provided for you */
+/* Helper routines */
 int parseline(const char *cmdline, char **argv); 
 void sigquit_handler(int sig);
 
@@ -86,9 +86,7 @@ void app_error(char *msg);
 typedef void handler_t(int);
 handler_t *Signal(int signum, handler_t *handler);
 
-/*
- * main - The shell's main routine 
- */
+/* main - The shell's main routine */
 int main(int argc, char **argv) {
     char c;
     char cmdline[MAXLINE];
@@ -151,8 +149,7 @@ int main(int argc, char **argv) {
     exit(0); /* control never reaches here */
 }
   
-/* 
- * eval - Evaluate the command line that the user has just typed in
+/* eval - Evaluate the command line that the user has just typed in
  * 
  * If the user has requested a built-in command (quit, jobs, bg or fg)
  * then execute it immediately. Otherwise, fork a child process and
@@ -160,8 +157,7 @@ int main(int argc, char **argv) {
  * the foreground, wait for it to terminate and then return.  Note:
  * each child process must have a unique process group ID so that our
  * background children don't receive SIGINT (SIGTSTP) from the kernel
- * when we type ctrl-c (ctrl-z) at the keyboard.  
-*/
+ * when we type ctrl-c (ctrl-z) at the keyboard. */
 void eval(char *cmdline) {
     char* argv[MAXARGS];
 
@@ -213,13 +209,11 @@ void eval(char *cmdline) {
     return;
 }
 
-/* 
- * parseline - Parse the command line and build the argv array.
+/* parseline - Parse the command line and build the argv array.
  * 
  * Characters enclosed in single quotes are treated as a single
  * argument.  Return true if the user has requested a BG job, false if
- * the user has requested a FG job.  
- */
+ * the user has requested a FG job. */
 int parseline(const char *cmdline, char **argv) {
     static char array[MAXLINE]; /* holds local copy of command line */
     char *buf = array;          /* ptr that traverses command line */
@@ -267,10 +261,8 @@ int parseline(const char *cmdline, char **argv) {
     return bg;
 }
 
-/* 
- * builtin_cmd - If the user has typed a built-in command then execute
- * it immediately. Built in commands are quit, jobs, bg, fg.
- */
+/* builtin_cmd - If the user has typed a built-in command then execute
+ * it immediately. Built in commands are quit, jobs, bg, fg. */
 int builtin_cmd(char **argv) {
     if (!strcmp(argv[0], "quit")) {
         exit(0);
@@ -289,24 +281,20 @@ int builtin_cmd(char **argv) {
     return 0;
 }
 
-/* 
- * do_bgfg - Execute the builtin bg and fg commands
- */
+/* do_bgfg - Execute the built-in bg and fg commands */
 void do_bgfg(char **argv) {
     // bg <job>
     // fg <job>
     return;
 }
 
-/* 
- * waitfg - Block until process pid is no longer the foreground process
- * i.e., wait for a foreground job to complete and pause shell in the meantime
- */
+/* waitfg - Block until process pid is no longer the foreground process
+ * i.e., wait for a foreground job to complete and pause shell in the meantime */
 void waitfg(pid_t pid) {
 
-    // pid updates once child is reaped by waitpid within handler
+    // fgpid returns 0 once foreground job is reaped by waitpid() within handler
     while (pid == fgpid(jobs)) {
-        sleep(1);
+        Sleep(1);
     }
     return;
 }
@@ -315,13 +303,11 @@ void waitfg(pid_t pid) {
  * Signal handlers
  *****************/
 
-/* 
- * sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
+/* sigchld_handler - The kernel sends a SIGCHLD to the shell whenever
  *     a child job terminates (becomes a zombie), or stops because it
  *     received a SIGSTOP or SIGTSTP signal. The handler reaps all
  *     available zombie children, but doesn't wait for any other
- *     currently running children to terminate.  
- */
+ *     currently running children to terminate. */
 void sigchld_handler(int sig) {
     pid_t pid;
     sigset_t all_mask, prev_mask;
@@ -342,33 +328,22 @@ void sigchld_handler(int sig) {
     return;
 }
 
-/* 
- * sigint_handler - The kernel sends a SIGINT to the shell whenever the
+/* sigint_handler - The kernel sends a SIGINT to the shell whenever the
  *    user types ctrl-c at the keyboard.  Catch it and send it along
- *    to the foreground job.  
- */
+ *    to the foreground job. */
 void sigint_handler(int sig) {
     // SIGNIT sent to every process in foreground group
-    // kill process
-    // if child, need to reap
-    // note: signals are not queued
-    // iterate through jobs list?
-    // idk
+
+    Sigkill()
     return;
 }
 
-/*
- * sigtstp_handler - The kernel sends a SIGTSTP to the shell whenever
+/* sigtstp_handler - The kernel sends a SIGTSTP to the shell whenever
  *     the user types ctrl-z at the keyboard. Catch it and suspend the
- *     foreground job by sending it a SIGTSTP.  
- */
+ *     foreground job by sending it a SIGTSTP. */
 void sigtstp_handler(int sig) {
     return;
 }
-
-/*********************
- * End signal handlers
- *********************/
 
 /***********************************************
  * Helper routines that manipulate the job list
@@ -519,18 +494,12 @@ void listjobs(struct job_t *jobs) {
         }
     }
 }
-/******************************
- * end job list helper routines
- ******************************/
-
 
 /***********************
  * Other helper routines
  ***********************/
 
-/*
- * usage - print a help message
- */
+/* usage - print a help message */
 void usage(void) {
     printf("Usage: shell [-hvp]\n");
     printf("   -h   print this message\n");
@@ -539,25 +508,19 @@ void usage(void) {
     exit(1);
 }
 
-/*
- * unix_error - unix-style error routine
- */
+/* unix_error - unix-style error routine */
 void unix_error(char *msg) {
     fprintf(stdout, "%s: %s\n", msg, strerror(errno));
     exit(1);
 }
 
-/*
- * app_error - application-style error routine
- */
+/* app_error - application-style error routine */
 void app_error(char *msg) {
     fprintf(stdout, "%s\n", msg);
     exit(1);
 }
 
-/*
- * Signal - wrapper for the sigaction function
- */
+/* Signal - wrapper for the sigaction function */
 handler_t *Signal(int signum, handler_t *handler) {
     struct sigaction action, old_action;
 
@@ -570,10 +533,8 @@ handler_t *Signal(int signum, handler_t *handler) {
     return (old_action.sa_handler);
 }
 
-/*
- * sigquit_handler - The driver program can gracefully terminate the
- *    child shell by sending it a SIGQUIT signal.
- */
+/* sigquit_handler - The driver program can gracefully terminate the
+ * child shell by sending it a SIGQUIT signal. */
 void sigquit_handler(int sig) {
     printf("Terminating after receipt of SIGQUIT signal\n");
     exit(1);
@@ -710,7 +671,6 @@ int Sigsuspend(const sigset_t *set)
 
 /* Private sio functions */
 
-/* $begin sioprivate */
 /* sio_reverse - Reverse a string (from K&R) */
 static void sio_reverse(char s[])
 {
@@ -752,10 +712,8 @@ static size_t sio_strlen(char s[])
         ++i;
     return i;
 }
-/* $end sioprivate */
 
 /* Public Sio functions */
-/* $begin siopublic */
 
 ssize_t sio_puts(char s[]) /* Put string */
 {
@@ -775,7 +733,6 @@ void sio_error(char s[]) /* Put error message and exit */
     sio_puts(s);
     _exit(1);                                      //line:csapp:sioexit
 }
-/* $end siopublic */
 
 /*******************************
  * Wrappers for the SIO routines
