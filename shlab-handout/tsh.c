@@ -57,13 +57,13 @@ struct job_t jobs[MAXJOBS]; /* The job list */
 
 /* Here are the functions that you will implement */
 void eval(char *cmdline);
-int builtin_cmd(char **argv);
-void do_bgfg(char **argv);
-void waitfg(pid_t pid);
+int builtin_cmd(char **argv); // done
+void do_bgfg(char **argv); // done
+void waitfg(pid_t pid); // done
 
-void sigchld_handler(int sig);
-void sigtstp_handler(int sig);
-void sigint_handler(int sig);
+void sigchld_handler(int sig); 
+void sigtstp_handler(int sig); // done
+void sigint_handler(int sig); // done
 
 /* Helper routines */
 int parseline(const char *cmdline, char **argv); 
@@ -195,15 +195,15 @@ void eval(char *cmdline) {
         Sigprocmask(SIG_SETMASK, &prev_mask1, NULL);
         
         if (!runBackground) {
-            /* foreground job logic */
-            // no need to change process group of child because by default,
+            /* Foreground job logic */
+            // No need to change process group of child because by default,
             // child process gets process group ID of parent
             waitfg(pid);
         } else {
-            /* background job logic */
-            // change process group id to background process group id?
+            /* Background job logic */
+            // Put current process PID in a new 
+            // Setpgid(0, 0);
             // printf("[%d] (%d) %s\n", pid2jid(pid), pid, buf);
-            
         }
     }
     return;
@@ -267,31 +267,68 @@ int builtin_cmd(char **argv) {
     if (!strcmp(argv[0], "quit")) {
         exit(0);
     } else if (!strcmp(argv[0], "jobs")) {
-        // print jobs to stdout and return to waiting for user input
+        // print jobs to stdout and return to shell
+        // block all signals while accessing jobs
+        sigset_t all_mask, prev_mask;
+        Sigfillset(&all_mask);
+        Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
         listjobs(jobs);
+        Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
         return 1;
     } else if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
-        // Todo
         do_bgfg(argv);
     } else if (!strcmp(argv[0], "&")) {
         // if single '&', return 1, and eval() logic will not continue
         return 1;
     }
-    // else, i
+    // else, is not built-in command
     return 0;
 }
 
-/* do_bgfg - Execute the built-in bg and fg commands */
+/* do_bgfg - Execute the built-in bg and fg commands 
+* args: bg <job> OR fg <job> */
 void do_bgfg(char **argv) {
-    // bg <job>
-    // fg <job>
+    // immediate return if no second arg
+    if (argv[1] == NULL) {
+        return; 
+    }
+    // Block all signals before accessing jobs
+    pid_t pid;
+    sigset_t all_mask, prev_mask;
+    Sigfillset(&all_mask);
+    Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
+
+    // Get the job struct
+    struct job_t* job;
+    char c = argv[1][0];
+    if (c == '%') {
+        job = getjobjid(jobs, atoi(argv[1] + 1));
+    } else {
+        job = getjobpid(jobs, atoi(argv[1]));
+    }
+    if (!strcmp(argv[0], "bg")) {
+        /* Change a stopped background job to a running background job */
+        // Change job state from ST to BG, then send that background process SIGCONT
+        job->state = BG;
+        pid = job->pid;
+        Sigprocmask(SIG_SETMASK, &prev_mask, NULL); // unblock all
+        Kill(-pid, SIGCONT);
+
+    } else { // fg
+        /* Change a stopped or running background job to a running foreground job */
+        // typing fg and reaching this line implies there is no current foreground job
+        job->state = FG;
+        pid = job->pid;
+        Sigprocmask(SIG_SETMASK, &prev_mask, NULL); // unblock all
+        Kill(-pid, SIGCONT);
+        waitfg(pid);
+    }
     return;
 }
 
 /* waitfg - Block until process pid is no longer the foreground process
  * i.e., wait for a foreground job to complete and pause shell in the meantime */
 void waitfg(pid_t pid) {
-
     // fgpid returns 0 once foreground job is reaped by waitpid() within handler
     while (pid == fgpid(jobs)) {
         Sleep(1);
@@ -315,12 +352,11 @@ void sigchld_handler(int sig) {
     
     int old_errno = errno;
     while ((pid = waitpid(-1, NULL, 0)) > 0) {
-        Sio_puts("Handler reaped child\n");
+        // Sio_puts("Handler reaped child\n");
         Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
         deletejob(jobs, pid);
         Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
     }
-
     if (errno != ECHILD) {
         Sio_error("sigchld_handler error");
     }
