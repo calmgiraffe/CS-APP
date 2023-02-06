@@ -172,40 +172,31 @@ void eval(char *cmdline) {
     Fork child process and run new process in its context. */
     if (!builtin_cmd(argv)) {
         pid_t pid;
-        sigset_t mask, prev_mask1, prev_mask2, all_mask;
-
+        sigset_t prev_mask, all_mask;
         Sigfillset(&all_mask);
-        Sigemptyset(&mask);
-        Sigaddset(&mask, SIGCHLD);
-        Sigprocmask(SIG_BLOCK, &mask, &prev_mask1);
+        Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
         
         if ((pid = Fork()) == 0) {
             /* Child process logic */
-            if (runBackground) {
-                Setpgid(0, 0);
-            }
-            Sigprocmask(SIG_SETMASK, &prev_mask1, NULL);
+            Setpgid(0, 0);
+            Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
             Execve(argv[0], argv, environ);
         }
         /* Parent process logic */
+        // Update jobs list and restore original mask
         int bgfg = (runBackground) ? BG : FG;
-        
-        // Block all signals, update jobs list,
-        // restore mask where SIGCHLD is blocked, then restore empty mask
-        Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask2);
         addjob(jobs, pid, bgfg, cmdline);
-        Sigprocmask(SIG_SETMASK, &prev_mask2, NULL);
-        Sigprocmask(SIG_SETMASK, &prev_mask1, NULL);
+        Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
         
         if (!runBackground) {
-            /* Foreground job logic */
-            // No need to change process group of child because by default,
-            // child process gets process group ID of parent
+            /* Foreground job */
             waitfg(pid);
         } else {
-            /* Background job logic */
+            /* Background job */
+            Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
             printf("[%d] (%d) %s", pid2jid(pid), pid, cmdline);
             fflush(stdout);
+            Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
         }
     }
     return;
@@ -279,6 +270,7 @@ int builtin_cmd(char **argv) {
         return 1;
     } else if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
         do_bgfg(argv);
+        return 1;
     } else if (!strcmp(argv[0], "&")) {
         // if single '&', return 1, and eval() logic will not continue
         return 1;
@@ -313,6 +305,7 @@ void do_bgfg(char **argv) {
         // Change job state from ST to BG, then send that background process SIGCONT
         job->state = BG;
         pid = job->pid;
+        printf("[%d] (%d) %s", pid2jid(pid), pid, job->cmdline);
         Sigprocmask(SIG_SETMASK, &prev_mask, NULL); // unblock all
         Kill(-pid, SIGCONT);
 
@@ -331,6 +324,7 @@ void do_bgfg(char **argv) {
 /* waitfg - Block until process pid is no longer the foreground process
  * i.e., wait for a foreground job to complete and pause shell in the meantime */
 void waitfg(pid_t pid) {
+    // pid = pid of foreground job
     // fgpid returns 0 once foreground job is reaped by waitpid() within handler
     while (pid == fgpid(jobs)) {
         Sleep(1);
@@ -350,18 +344,40 @@ void waitfg(pid_t pid) {
 void sigchld_handler(int sig) {
     int old_errno = errno;
     int status;
-
+    struct job_t* job;
     pid_t pid;
     sigset_t all_mask, prev_mask;
     Sigfillset(&all_mask);
 
-    // reap all available zombies, once there are no more zombies, waitpid
-    // returns 0 or -1, and handler loop stops
+    // Reap all available zombies. Once there are no more zombies,
+    // waitpid() returns 0 or -1, and loop stops
     while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0) {
-        // Sio_puts("Handler reaped child\n");
-        Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
-        deletejob(jobs, pid);
-        Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+        Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask); // Block signals
+        
+        if (WIFSIGNALED(status)) { // termination from signal
+            Sio_puts("Job [");
+            Sio_putl(pid2jid(pid));
+            Sio_puts("] (");
+            Sio_putl(pid);
+            Sio_puts(") terminated by signal ");
+            Sio_putl(WTERMSIG(status));
+            Sio_puts("\n");   
+            deletejob(jobs, pid);
+        } else if (WIFEXITED(status)) { // normal termination via exit or return
+            deletejob(jobs, pid);
+        } else if (WIFSTOPPED(status)) { // stop a foreground job
+            Sio_puts("Job [");
+            Sio_putl(pid2jid(pid));
+            Sio_puts("] (");
+            Sio_putl(pid);
+            Sio_puts(") stopped by signal ");
+            Sio_putl(WSTOPSIG(status));
+            Sio_puts("\n");   
+            
+            job = getjobpid(jobs, pid); // change job state
+            job->state = ST;
+        }
+        Sigprocmask(SIG_SETMASK, &prev_mask, NULL); // unblock signals
     }
     errno = old_errno;
     return;
@@ -379,16 +395,14 @@ void sigint_handler(int sig) {
     Sigfillset(&all_mask);
     Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
 
-    // Delete foreground job if it exists, send SIGNIT to every foreground group process
+    // Send SIGNIT to every foreground group process
     if ((pid = fgpid(jobs)) > 0) {
-        deletejob(jobs, pid);
         Kill(-pid, SIGINT);
     }
 
     // Unblock all signals and restore errno
     Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
     errno = old_errno;
-
     return;
 }
 
@@ -398,21 +412,20 @@ void sigint_handler(int sig) {
 void sigtstp_handler(int sig) {
 
     // Store current errno and block all signals
-    pid_t pid;
     int old_errno = errno;
+    pid_t pid;
     sigset_t all_mask, prev_mask;
     Sigfillset(&all_mask);
     Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
 
     // Stop foreground job if it exists, send SIGSTOP to every foreground group process
     if ((pid = fgpid(jobs)) > 0) {
-        Kill(-pid, SIGSTOP);
+        Kill(-pid, SIGTSTP);
     }
 
     // Unblock all signals and restore errno
     Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
     errno = old_errno;
-
     return;
 }
 
