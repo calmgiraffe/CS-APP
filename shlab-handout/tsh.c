@@ -165,47 +165,49 @@ int main(int argc, char **argv) {
 void eval(char *cmdline) {
     char* argv[MAXARGS];
 
-    // parse cmdline into array of pointers argv
+    /* Parse cmdline into array of char*, argv.
+    If cmdline is empty, immediately return */
     int runBackground = parseline(cmdline, argv); 
-
-    // return if no commands
     if (argv[0] == NULL) { 
         return;
     }
+
     /* If not built-in cmd, is pathname of executable file.
     Fork child process and run new process in its context. */
     if (!builtin_cmd(argv)) {
         pid_t pid;
+        sigset_t mask, prev_mask1, prev_mask2, all_mask;
 
-        // Block SIGCHLD before forking new process
-        sigset_t mask, prev_mask, all_mask;
         Sigfillset(&all_mask);
         Sigemptyset(&mask);
         Sigaddset(&mask, SIGCHLD);
-        Sigprocmask(SIG_BLOCK, &mask, &prev_mask);
+        Sigprocmask(SIG_BLOCK, &mask, &prev_mask1);
         
         if ((pid = Fork()) == 0) {
             /* Child process logic */
-
-            Sigprocmask(SIG_SETMASK, &prev_mask, NULL); // unblock SIGCHLD
-            Setpgid(0, 0); // create a new process group for the child
+            Sigprocmask(SIG_SETMASK, &prev_mask1, NULL); // unblock SIGCHLD
             Execve(argv[0], argv, environ); // run new process
         }
         /* Parent process logic */
-        
-        // block all signals, update jobs list,
-        // then restore to mask where SIGCHLD is blocked
         int bgfg = (runBackground) ? BG : FG;
-        Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
+        
+        // Block all signals, update jobs list,
+        // restore mask where SIGCHLD is blocked, then restore empty mask
+        Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask2);
         addjob(jobs, pid, bgfg, cmdline);
-        Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+        Sigprocmask(SIG_SETMASK, &prev_mask2, NULL);
+        Sigprocmask(SIG_SETMASK, &prev_mask1, NULL);
         
         if (!runBackground) {
-            // waits for job to terminate and be reaped by SIGCHLD handler
-            // before accepting new command
+            /* foreground job logic */
+            // no need to change process group of child because by default,
+            // child process gets process group ID of parent
             waitfg(pid);
         } else {
-            //printf("[%d] (%d) %s\n", pid2jid(pid), pid, buf);
+            /* background job logic */
+            // change process group id to background process group id?
+            // printf("[%d] (%d) %s\n", pid2jid(pid), pid, buf);
+            
         }
     }
     return;
@@ -267,20 +269,24 @@ int parseline(const char *cmdline, char **argv) {
 
 /* 
  * builtin_cmd - If the user has typed a built-in command then execute
- * it immediately. Built in commands are quit, jobs, bg, fg. Returns 0
- * (indicating not a built in command) if single '&' typed in.
+ * it immediately. Built in commands are quit, jobs, bg, fg.
  */
 int builtin_cmd(char **argv) {
     if (!strcmp(argv[0], "quit")) {
         exit(0);
     } else if (!strcmp(argv[0], "jobs")) {
+        // print jobs to stdout and return to waiting for user input
         listjobs(jobs);
+        return 1;
     } else if (!strcmp(argv[0], "bg") || !strcmp(argv[0], "fg")) {
+        // Todo
         do_bgfg(argv);
     } else if (!strcmp(argv[0], "&")) {
+        // if single '&', return 1, and eval() logic will not continue
         return 1;
     }
-    return 0; /* not a builtin command */
+    // else, i
+    return 0;
 }
 
 /* 
@@ -294,24 +300,14 @@ void do_bgfg(char **argv) {
 
 /* 
  * waitfg - Block until process pid is no longer the foreground process
+ * i.e., wait for a foreground job to complete and pause shell in the meantime
  */
 void waitfg(pid_t pid) {
-    // block SIGCHLD if not done so already
-    sigset_t mask, prev_mask;
-    Sigemptyset(&mask);
-    Sigaddset(&mask, SIGCHLD);
-    Sigprocmask(SIG_BLOCK, &mask, &prev_mask);
 
     // pid updates once child is reaped by waitpid within handler
     while (pid == fgpid(jobs)) {
-        // 1. replace current mask with empty mask
-        // 2. suspend process until receipt of signal whose action is to run 
-        //    handler or terminate
-        // 3. restore the prev mask
-        sigsuspend(&mask);
+        sleep(1);
     }
-    Sigprocmask(SIG_BLOCK, &prev_mask, NULL);
-
     return;
 }
 
@@ -328,20 +324,17 @@ void waitfg(pid_t pid) {
  */
 void sigchld_handler(int sig) {
     pid_t pid;
-    sigset_t prev_mask, all_mask;
+    sigset_t all_mask, prev_mask;
     Sigfillset(&all_mask);
-
+    
     int old_errno = errno;
-
-    // waitpid returns 0 if WNOHANG, -1 on error
-    while ((pid = waitpid(-1, NULL, WNOHANG | WUNTRACED)) > 0) {
+    while ((pid = waitpid(-1, NULL, 0)) > 0) {
         Sio_puts("Handler reaped child\n");
-
-        // Delete child from global jobs list
         Sigprocmask(SIG_BLOCK, &all_mask, &prev_mask);
         deletejob(jobs, pid);
         Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
     }
+
     if (errno != ECHILD) {
         Sio_error("waitpid error");
     }
@@ -658,7 +651,6 @@ pid_t Getpgrp(void) {
 /************************************
  * Wrappers for Unix signal functions 
  ***********************************/
-
 
 void Sigprocmask(int how, const sigset_t *set, sigset_t *oldset)
 {
