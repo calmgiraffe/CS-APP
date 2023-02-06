@@ -180,7 +180,10 @@ void eval(char *cmdline) {
             /* Child process logic */
             Setpgid(0, 0);
             Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-            Execve(argv[0], argv, environ);
+            if (execve(argv[0], argv, environ) < 0) {
+                printf("%s: Command not found\n", argv[0]);
+                exit(1);
+            }
         }
         /* Parent process logic */
         // Update jobs list and restore original mask
@@ -284,6 +287,7 @@ int builtin_cmd(char **argv) {
 void do_bgfg(char **argv) {
     // immediate return if no second arg
     if (argv[1] == NULL) {
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
         return; 
     }
     // Block all signals before accessing jobs
@@ -292,14 +296,29 @@ void do_bgfg(char **argv) {
     Sigfillset(&all_mask);
     Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
 
-    // Get the job struct
+    // Get the pid or jid
+    // Additional error handling also here
     struct job_t* job;
-    char c = argv[1][0];
-    if (c == '%') {
-        job = getjobjid(jobs, atoi(argv[1] + 1));
-    } else {
-        job = getjobpid(jobs, atoi(argv[1]));
+    int is_jid = (argv[1][0] == '%') ? 1 : 0;
+    int jid_pid = (is_jid) ? atoi(argv[1] + 1) : atoi(argv[1]);
+
+    if (jid_pid == 0) { // 0 indicating invalid string
+        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+        Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
+        return;
     }
+    // Get pointer to job
+    job = (is_jid) ? getjobjid(jobs, jid_pid) : getjobpid(jobs, jid_pid);
+    if (job == NULL) {
+        if (is_jid) {
+            printf("%%%d: No such job\n", jid_pid);
+        } else {
+            printf("(%d): No such process\n", jid_pid);
+        }
+        Sigprocmask(SIG_SETMASK, &prev_mask, NULL); 
+        return;
+    }
+    
     if (!strcmp(argv[0], "bg")) {
         /* Change a stopped background job to a running background job */
         // Change job state from ST to BG, then send that background process SIGCONT
