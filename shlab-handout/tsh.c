@@ -290,25 +290,22 @@ void do_bgfg(char **argv) {
         printf("%s command requires PID or %%jobid argument\n", argv[0]);
         return; 
     }
+    // Get the pid or jid
+    int is_jid = (argv[1][0] == '%') ? 1 : 0;
+    int jid_pid = (is_jid) ? atoi(argv[1] + 1) : atoi(argv[1]);
+    
+    if (jid_pid == 0) { // 0 indicating invalid string
+        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
+        return;
+    }
     // Block all signals before accessing jobs
     pid_t pid;
     sigset_t all_mask, prev_mask;
     Sigfillset(&all_mask);
     Sigprocmask(SIG_SETMASK, &all_mask, &prev_mask);
 
-    // Get the pid or jid
-    // Additional error handling also here
-    struct job_t* job;
-    int is_jid = (argv[1][0] == '%') ? 1 : 0;
-    int jid_pid = (is_jid) ? atoi(argv[1] + 1) : atoi(argv[1]);
-
-    if (jid_pid == 0) { // 0 indicating invalid string
-        printf("%s: argument must be a PID or %%jobid\n", argv[0]);
-        Sigprocmask(SIG_SETMASK, &prev_mask, NULL);
-        return;
-    }
     // Get pointer to job
-    job = (is_jid) ? getjobjid(jobs, jid_pid) : getjobpid(jobs, jid_pid);
+    struct job_t* job = (is_jid) ? getjobjid(jobs, jid_pid) : getjobpid(jobs, jid_pid);
     if (job == NULL) {
         if (is_jid) {
             printf("%%%d: No such job\n", jid_pid);
@@ -318,7 +315,7 @@ void do_bgfg(char **argv) {
         Sigprocmask(SIG_SETMASK, &prev_mask, NULL); 
         return;
     }
-    
+
     if (!strcmp(argv[0], "bg")) {
         /* Change a stopped background job to a running background job */
         // Change job state from ST to BG, then send that background process SIGCONT
