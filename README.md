@@ -5,7 +5,7 @@
 - Bomb Lab ✓
 - Attack Lab ✓
 - Cache Lab ✓
-- Shell Lab
+- Shell Lab ✓
 - Malloc Lab
 - Proxy Lab
 
@@ -24,14 +24,14 @@ Done in conjuction with lectures from [CMU's 15-213](https://www.cs.cmu.edu/afs/
 - Code Optimization ✓
 - The Memory Hierarchy ✓
 - Cache Memories ✓
-- Linking
-- ECF: Exceptions & Processes
-- ECF: Signals
-- System Level I/O
-- Virtual Memory: Concepts
-- Virtual Memory: Systems	
-- Storage Allocation: Basic
-- Storage Allocation: Advanced
+- Linking ✓
+- ECF: Exceptions & Processes ✓
+- ECF: Signals ✓
+- System Level I/O ✓
+- Virtual Memory: Concepts ✓
+- Virtual Memory: Systems	✓
+- Storage Allocation: Basic ✓
+- Storage Allocation: Advanced ✓
 - Network Programming: Part 1
 - Network Programming: Part 2
 - Concurrent Programming
