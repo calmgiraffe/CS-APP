@@ -30,7 +30,7 @@ team_t team = {
     ""
 };
 
-/* rounds up to the nearest multiple of ALIGNMENT */
+/* Rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
 /* Basic constants and macros */
@@ -44,28 +44,36 @@ team_t team = {
 /* Pack a size and allocaed bit into a word */
 #define PACK(size, alloc) ((size) | (alloc))
 
-/* Read/write a word at address p */
+/* Read a word (4 B) at address p */
 #define GET(p) (*(unsigned int *) (p))
+
+/* Write a word (4 B) at address p */
 #define PUT(p, val) (*(unsigned int *) (p) = (val))
 
-/* Read the size/allocated fields from address p.
- * Assume p is a header or footer */
+/* Read the size fields from address p. Assume p is a header/footer. */
 #define GET_SIZE(p) (GET(p) & ~0x7) // ~0x7 = 111...11000
+
+/* Read the allocated bit from address p. Assume p is a header/footer. */
 #define GET_ALLOC(p) (GET(p) & 0x1) //  0x1 = 000...00001
 
-/* Given block ptr bp, compute address of its header/footer */
-// Assume bp points to beginning of payload (just after the header)
+/* Given block ptr bp, compute address of its header.
+ * Assume bp points to the beginning of the paylod. */
 #define HDRP(bp) ((char *)(bp) - WSIZE)
+
+/* Given block ptr bp, compute address of its footer.
+ * Assume bp points to the beginning of the paylod. */
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 
-/* Given block ptr bp, compute address of next/previous blocks */
 // bp - WISE = curr block's header
-#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 // bp - DWISE = prev block's footer
+/* Given block ptr bp, compute address of the next block */
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
+
+/* Given block ptr bp, compute address of the previous block */
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) 
 
+/* Pointer to first byte of heap */
 static void* heap_listp;
-
 
 static void *coalesce(void* bp);
 static void* find_fit(size_t asize);
@@ -187,31 +195,45 @@ void *mm_malloc(size_t size) {
 }
 
 /* Searches the free list for a sutiable free block. If there is a fit,
- * returns a pointer to the beginning of the block */
+ * returns a pointer to the beginning of the block. If no fit, returns NULL. */
 static void* find_fit(size_t asize) {
     /* First fit search */
-    void* bp;
+    void* bp = heap_listp;
+
+    while (GET_SIZE(HDRP(bp)) > 0) {
+        // if not allocated and block size is sufficient, return bp
+        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+            return bp;
+        }
+    }
+    /*
     for (bp = heap_listp; GET_SIZE(HDRP(bp)) > 0; bp = NEXT_BLKP(bp)) {
         if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
             return bp;
         }
     }
-    return NULL; // no fit
+    */
+    return NULL; // return NULL on no fit
 }
 
 /* Place the requested allocated block within the block, splits the excess,
- * and returns the address of the newly allocate block */
+ * and sets bp to the address of the newly allocated block. */
 static void* place(void *bp, size_t asize) {
+    // Get the size of the current block
     size_t csize = GET_SIZE(HDRP(bp));
 
+    // If remainder block size > 16 
     if ((csize - asize) >= (2*DSIZE)) {
+        // Set header and footer of current block
         PUT(HDRP(bp), PACK(asize, 1));
         PUT(FTRP(bp), PACK(asize, 1));
+        // Set the header and footer of next block
         bp = NEXT_BLKP(bp);
         PUT(HDRP(bp), PACK(csize - asize, 0));
         PUT(FTRP(bp), PACK(csize - asize, 0));
 
-    } else {
+    } else { 
+        // Remainder block is too small. Update current block's header
         PUT(HDRP(bp), PACK(csize, 1));
         PUT(FTRP(bp), PACK(csize, 1));
     }

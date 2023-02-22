@@ -13,7 +13,8 @@ void mem_deinit(void);
  * If error, returns (void *) - 1 */
 void *mem_sbrk(int incr);
 
-/* mem_reset_brk - reset the simulated brk pointer to make an empty heap */
+/* mem_reset_brk - reset the simulated brk pointer to make an empty heap.
+ * Pointer to last byte of heap = pointer to first byte of heap  */
 void mem_reset_brk(void);
 
 /* mem_heap_lo - return address of the first heap byte */
