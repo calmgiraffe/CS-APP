@@ -141,7 +141,8 @@ static void* coalesce(void* bp) {
     case 1: prev and next blocks are allocated
     case 2: next block is free
     case 3: prev block is free
-    case 4: both next and prev blocks are free */
+    case 4: both next and prev blocks are free
+    */
     if (prevIsAlloc && nextIsAlloc) {
         return bp;
 
@@ -169,7 +170,7 @@ static void* coalesce(void* bp) {
  * Returns a pointer to the newly allocated block if successful, NULL on error.
  */
 void* mm_malloc(size_t size) {
-    size_t asize;       // adjusted block size
+    size_t asize; // adjusted block size
     char *bp;
 
     if (size == 0) {
@@ -270,12 +271,13 @@ void* mm_realloc(void* ptr, size_t newSize) {
     } else { // ptr is not null and size != 0
         if (newSize == GET_SIZE(HDRP(ptr))) {
             return ptr;
+
         } else {
             // Search for a another free block
             // Copy over the data
             // Free the current block
             newptr = mm_malloc(newSize);
-            memcpy(newptr, ptr, GET_SIZE(HDRP(ptr)));
+            memcpy(newptr, ptr, newSize);
             mm_free(ptr);
             return newptr;
         }
