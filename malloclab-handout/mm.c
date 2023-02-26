@@ -1,14 +1,3 @@
-/*
- * mm-naive.c - The fastest, least memory-efficient malloc package.
- * 
- * In this naive approach, a block is allocated by simply incrementing
- * the brk pointer.  A block is pure payload. There are no headers or
- * footers.  Blocks are never coalesced or reused. Realloc is
- * implemented directly using mm_malloc and mm_free.
- *
- * NOTE TO STUDENTS: Replace this header comment with your own header
- * comment that gives a high level description of your solution.
- */
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -194,8 +183,8 @@ void* mm_malloc(size_t size) {
 /* Searches the free list for a suitable free block. If no fit, gets more memory
  * and places the block. If sucessful, returns a pointer to the beginning of 
  * the block. Returns NULL on error.
-// NOTE can probably refactor this into malloc()
  */
+// NOTE can probably refactor this into malloc()
 static void* find_fit(size_t asize) {
     void* bp = heap_listp;
 
@@ -269,7 +258,8 @@ void* mm_realloc(void* ptr, size_t newSize) {
         return NULL;
 
     } else { // ptr is not null and size != 0
-        if (newSize == GET_SIZE(HDRP(ptr))) {
+        size_t currSize = GET_SIZE(HDRP(ptr));
+        if (newSize == currSize) {
             return ptr;
 
         } else {
@@ -277,7 +267,11 @@ void* mm_realloc(void* ptr, size_t newSize) {
             // Copy over the data
             // Free the current block
             newptr = mm_malloc(newSize);
-            memcpy(newptr, ptr, newSize);
+            if (newSize < currSize) {
+                memcpy(newptr, ptr, newSize);
+            } else {
+                memcpy(newptr, ptr, currSize);
+            }
             mm_free(ptr);
             return newptr;
         }
