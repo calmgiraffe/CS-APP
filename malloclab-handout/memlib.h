@@ -10,7 +10,7 @@ void mem_deinit(void);
  * where incr is a positive non-zero int. 
  *
  * Returns a generic pointer to the first byte of the newly allocated heap area.
- * If error, returns (void *) - 1 */
+ * If error, returns (void *) -1 */
 void *mem_sbrk(int incr);
 
 /* mem_reset_brk - reset the simulated brk pointer to make an empty heap.
