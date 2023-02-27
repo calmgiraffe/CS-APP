@@ -28,37 +28,28 @@ team_t team = {
 #define WSIZE 4
 #define DSIZE 8
 #define CHUNKSIZE (1<<12)
-#define MAX(x, y) ((x) > (y)? (x) : (y))
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
-#define PACK(size, alloc) ((size) | (alloc)) /* Pack a size and allocated bit into a word */
-#define GET(p) (*(unsigned int *) (p)) /* Read a word (4 B) at address p */
-#define PUT(p, val) (*(unsigned int *) (p) = (val)) /* Write a word (4 B) at address p */
-#define GET_SIZE(p) (GET(p) & ~0x7) /* Read the size fields from address p. */
-#define GET_ALLOC(p) (GET(p) & 0x1) /* Read the allocated bit from address p. */
+/* Internal helper macros */
+#define PACK(size, alloc) ((size) | (alloc)) // Pack a size and allocated bit into a word
+#define GET(p) (*(unsigned int *) (p)) // Read a word (4 B) at address p
+#define PUT(p, val) (*(unsigned int *) (p) = (val)) // Write a word (4 B) at address p
 
-/* Given block ptr bp, compute address of its header.
- * Assume bp points to the beginning of the payload. */
-#define HDRP(bp) ((char *) (bp) - WSIZE)
+/* Macro interface */
+#define HDRP(bp) ((char *) (bp) - WSIZE) // Get header address of the block bp
+#define FTRP(bp) ((char *) (bp) + GET_SIZE(bp) - DSIZE) // Get footer address of the block bp
+#define GET_SIZE(bp) (GET(HDRP(bp)) & ~0x7) // Get the size of the block bp
+#define GET_ALLOC(bp) (GET(HDRP(bp)) & 0x1) // Get the alloc bit of the block bp
+#define NEXT_BLKP(bp) ((char *) (bp) + GET_SIZE(bp)) // Get address of the next adjacent block
+#define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7)) // Get address of the previous adjacent block
 
-/* Given block ptr bp, compute address of its footer.
- * Assume bp points to the beginning of the payload. */
-#define FTRP(bp) ((char *) (bp) + GET_SIZE(HDRP(bp)) - DSIZE)
+static void* heap_listp; // pointer to first byte of heap
 
-// bp - WISE = curr block's header
-// bp - DWISE = prev block's footer
-/* Given block ptr bp, compute address of the next block */
-#define NEXT_BLKP(bp) ((char *) (bp) + GET_SIZE(((char *) (bp) - WSIZE)))
-
-/* Given block ptr bp, compute address of the previous block */
-#define PREV_BLKP(bp) ((char *) (bp) - GET_SIZE(((char *) (bp) - DSIZE))) 
-
-/* Pointer to first byte of heap */
-static void* heap_listp;
+/* Prototypes */
 static void *coalesce(void* bp);
 static void* find_fit(size_t asize);
 static void* place(void *bp, size_t asize);
 static void* extend_heap(size_t words);
-
 
 /* Initialize the malloc package.
  * Returns 0 if sucessful, -1 if error. 
@@ -114,9 +105,9 @@ static void* extend_heap(size_t words) {
  */
 static void* coalesce(void* bp) {
 
-    size_t prevIsAlloc = GET_ALLOC(FTRP(PREV_BLKP(bp)));
-    size_t nextIsAlloc = GET_ALLOC(HDRP(NEXT_BLKP(bp)));
-    size_t size = GET_SIZE(HDRP(bp));
+    size_t prevIsAlloc = GET_ALLOC(PREV_BLKP(bp));
+    size_t nextIsAlloc = GET_ALLOC(NEXT_BLKP(bp));
+    size_t size = GET_SIZE(bp);
 
     /*
     case 1: prev and next blocks are allocated
@@ -128,18 +119,18 @@ static void* coalesce(void* bp) {
         return bp;
 
     } else if (prevIsAlloc && !nextIsAlloc) {
-        size += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        size += GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(bp), PACK(size, 0));
         PUT(FTRP(bp), PACK(size, 0));
 
     } else if (!prevIsAlloc && nextIsAlloc) {
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
+        size += GET_SIZE(PREV_BLKP(bp));
         PUT(FTRP(bp), PACK(size, 0));            // reset curr footer
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0)); // reset prev header
         bp = PREV_BLKP(bp);
 
     } else {
-        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
+        size += GET_SIZE(PREV_BLKP(bp)) + GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0)); // reset prev header
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0)); // reset next footer
         bp = PREV_BLKP(bp);
@@ -180,8 +171,8 @@ static void* find_fit(size_t asize) {
     void* bp = heap_listp;
 
     // First fit search: iterate through blocks until valid block found
-    while (GET_SIZE(HDRP(bp)) > 0) {
-        if (!GET_ALLOC(HDRP(bp)) && (asize <= GET_SIZE(HDRP(bp)))) {
+    while (GET_SIZE(bp) > 0) {
+        if (!GET_ALLOC(bp) && (asize <= GET_SIZE(bp))) {
             return bp;
         }
         bp = NEXT_BLKP(bp);
@@ -197,7 +188,7 @@ static void* find_fit(size_t asize) {
  */
 static void* place(void* bp, size_t asize) {
     // Get the size of the current block
-    size_t csize = GET_SIZE(HDRP(bp));
+    size_t csize = GET_SIZE(bp);
 
     // If remainder block size >= 16 
     if ((csize - asize) >= (2*DSIZE)) {
@@ -222,7 +213,7 @@ static void* place(void* bp, size_t asize) {
  * Assume bp points to the start of a block.
  */
 void mm_free(void* bp) {
-    size_t size = GET_SIZE(HDRP(bp));
+    size_t size = GET_SIZE(bp);
 
     PUT(HDRP(bp), PACK(size, 0)); // reset header bit
     PUT(FTRP(bp), PACK(size, 0)); // reset footer bit
@@ -247,7 +238,7 @@ void* mm_realloc(void* ptr, size_t newSize) {
         return NULL;
 
     } else { // ptr is not null and size != 0
-        size_t currSize = GET_SIZE(HDRP(ptr));
+        size_t currSize = GET_SIZE(ptr);
         if (newSize == currSize) {
             return ptr;
 
