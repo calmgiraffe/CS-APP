@@ -28,20 +28,23 @@ team_t team = {
 #define WSIZE 4
 #define DSIZE 8
 #define CHUNKSIZE (1<<12)
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
 
 /* Internal helper macros */
 #define PACK(size, alloc) ((size) | (alloc)) // Pack a size and allocated bit into a word
 #define GET(p) (*(unsigned int *) (p)) // Read a word (4 B) at address p
-#define PUT(p, val) (*(unsigned int *) (p) = (val)) // Write a word (4 B) at address p
 
 /* Macro interface */
+#define MAX(x, y) ((x) > (y) ? (x) : (y))
+#define PUT(p, val) (*(unsigned int *) (p) = (val)) // Write a word (4 B) at address p
 #define HDRP(bp) ((char *) (bp) - WSIZE) // Get header address of the block bp
 #define FTRP(bp) ((char *) (bp) + GET_SIZE(bp) - DSIZE) // Get footer address of the block bp
 #define GET_SIZE(bp) (GET(HDRP(bp)) & ~0x7) // Get the size of the block bp
 #define GET_ALLOC(bp) (GET(HDRP(bp)) & 0x1) // Get the alloc bit of the block bp
 #define NEXT_BLKP(bp) ((char *) (bp) + GET_SIZE(bp)) // Get address of the next adjacent block
 #define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7)) // Get address of the previous adjacent block
+#define checkheap(lineno) mm_checkheap(lineno)
+//#define checkheap
+
 
 static void* heap_listp; // pointer to first byte of heap
 
@@ -101,7 +104,7 @@ static void* extend_heap(size_t words) {
 }
 
 /* Given a block pointer bp pointing to a free block, coalesce the prev and next
- * blocks if they are also free. Returns a pointer to start of the coalesced block.
+ * blocks if they are also free. Returns a pointer to the start of the coalesced block.
  */
 static void* coalesce(void* bp) {
 
@@ -256,4 +259,9 @@ void* mm_realloc(void* ptr, size_t newSize) {
             return newptr;
         }
     }
+}
+
+/* Checks the heap for correctness. Call this function using mm_check(__LINE__) */
+void mm_check(int lineno) {
+    printf("checkheap called from %d\n", lineno);
 }

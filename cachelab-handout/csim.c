@@ -208,6 +208,7 @@ int main(int argc, char* argv[]) {
                 result1 = load(&cache, setIndex, tag, associativity, timestamp);
                 result2 = load(&cache, setIndex, tag, associativity, timestamp);
             }
+            
             if (result1 == 0) {
                 hits += 1;
             } else if (result1 == 1) {
@@ -216,6 +217,7 @@ int main(int argc, char* argv[]) {
                 misses += 1;
                 evictions += 1;
             }
+
             if (result2 == 0) {
                 hits += 1;
             } else if (result2 == 1) {
