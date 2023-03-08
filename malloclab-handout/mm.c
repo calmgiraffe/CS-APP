@@ -29,22 +29,29 @@ team_t team = {
 #define DSIZE 8
 #define CHUNKSIZE (1<<12)
 
-/* Internal helper macros */
-#define PACK(size, alloc) ((size) | (alloc)) // Pack a size and allocated bit into a word
-#define GET(p) (*(unsigned int *) (p)) // Read a word (4 B) at address p
-
 /* Macro interface */
+// Return a word (4 B) at address p.
+#define GET(p) (*(unsigned int *) (p))
+// Return the maximum of x and y.
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
-#define PUT(p, val) (*(unsigned int *) (p) = (val)) // Write a word (4 B) at address p
-#define HDRP(bp) ((char *) (bp) - WSIZE) // Get header address of the block bp
-#define FTRP(bp) ((char *) (bp) + GET_SIZE(bp) - DSIZE) // Get footer address of the block bp
-#define GET_SIZE(bp) (GET(HDRP(bp)) & ~0x7) // Get the size of the block bp
-#define GET_ALLOC(bp) (GET(HDRP(bp)) & 0x1) // Get the alloc bit of the block bp
-#define NEXT_BLKP(bp) ((char *) (bp) + GET_SIZE(bp)) // Get address of the next adjacent block
-#define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7)) // Get address of the previous adjacent block
-#define checkheap(lineno) mm_checkheap(lineno)
-//#define checkheap
+// Pack the given size and alloc bit, then place at addr p as a 4B unsigned int.
+#define PUT(p, size, alloc) (*(unsigned int *) (p) = ((size) | (alloc))) 
+// Return the header address of the block, pointed to by bp.
+#define HDRP(bp) ((char *) (bp) - WSIZE)
+// Return the footer address of the block bp, pointed to by bp.
+#define FTRP(bp) ((char *) (bp) + GET_SIZE(bp) - DSIZE)
+// Get the size of the block bp, pointed to by bp.
+#define GET_SIZE(bp) (GET(HDRP(bp)) & ~0x7)
+// Get the alloc bit of the block bp, pointed to by bp.
+#define GET_ALLOC(bp) (GET(HDRP(bp)) & 0x1)
+// Get address of the next adjacent block, pointed to by bp.
+#define NEXT_BLKP(bp) ((char *) (bp) + GET_SIZE(bp)) 
+// Get address of the previous adjacent block, pointed to by bp.
+#define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7))
 
+/* Heapchecker - comment/uncomment to disable and enable */
+#define checkheap(lineno) (mm_checkheap(lineno))
+// #define checkheap(lineno)
 
 static void* heap_listp; // pointer to first byte of heap
 
@@ -63,11 +70,11 @@ int mm_init(void)
     if ((long) heap_listp == -1) {
         return -1;
     }
-    PUT(heap_listp, 0);                          // Alignment padding
-    PUT(heap_listp + (1*WSIZE), PACK(DSIZE, 1)); // Prologue header
-    PUT(heap_listp + (2*WSIZE), PACK(DSIZE, 1)); // Prologue footer
-    PUT(heap_listp + (3*WSIZE), PACK(0, 1));     // Epilogue header
-    heap_listp += (2*WSIZE);
+    PUT(heap_listp, 0, 0);                          // Alignment padding
+    PUT(heap_listp + 1*WSIZE, DSIZE, 1); // Prologue header
+    PUT(heap_listp + 2*WSIZE, DSIZE, 1); // Prologue footer
+    PUT(heap_listp + 3*WSIZE, 0, 1);     // Epilogue header
+    heap_listp += 2*WSIZE;
 
     /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) {
@@ -91,14 +98,15 @@ static void* extend_heap(size_t words) {
     if ((long) bp == -1) {
         return NULL;
     }
-    /* Initialize free block header/footer and the epilogue header
+    /* Initialize free block header/footer and the epilogue header.
+
     put block size + 0 bit at header address, which is 4 bytes before bp
     put block size + 0 bit at footer address, which is 8 bytes before mem_brk
-    note: the old epilogue header becomes the new block header
-    put new epilogue header 4 bytes before mem_brk */
-    PUT(HDRP(bp), PACK(size, 0));
-    PUT(FTRP(bp), PACK(size, 0));
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1));
+    put new epilogue header 4 bytes before mem_brk 
+    note: the old epilogue header becomes the new block header */
+    PUT(HDRP(bp), size, 0);
+    PUT(FTRP(bp), size, 0);
+    PUT(HDRP(NEXT_BLKP(bp)), 0, 1);
 
     return coalesce(bp);
 }
@@ -123,19 +131,19 @@ static void* coalesce(void* bp) {
 
     } else if (prevIsAlloc && !nextIsAlloc) {
         size += GET_SIZE(NEXT_BLKP(bp));
-        PUT(HDRP(bp), PACK(size, 0));
-        PUT(FTRP(bp), PACK(size, 0));
+        PUT(HDRP(bp), size, 0);
+        PUT(FTRP(bp), size, 0);
 
     } else if (!prevIsAlloc && nextIsAlloc) {
         size += GET_SIZE(PREV_BLKP(bp));
-        PUT(FTRP(bp), PACK(size, 0));            // reset curr footer
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0)); // reset prev header
+        PUT(FTRP(bp), size, 0);            // reset curr footer
+        PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         bp = PREV_BLKP(bp);
 
     } else {
         size += GET_SIZE(PREV_BLKP(bp)) + GET_SIZE(NEXT_BLKP(bp));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size, 0)); // reset prev header
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size, 0)); // reset next footer
+        PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
+        PUT(FTRP(NEXT_BLKP(bp)), size, 0); // reset next footer
         bp = PREV_BLKP(bp);
     }
     return bp;
@@ -197,17 +205,17 @@ static void* place(void* bp, size_t asize) {
     if ((csize - asize) >= (2*DSIZE)) {
         // Update header and footer of requested block.
         // Note: FTRP depends on size value within header
-        PUT(HDRP(bp), PACK(asize, 1));
-        PUT(FTRP(bp), PACK(asize, 1));
+        PUT(HDRP(bp), asize, 1);
+        PUT(FTRP(bp), asize, 1);
         // Set the header and footer of next block
         void* bp_next = NEXT_BLKP(bp);
-        PUT(HDRP(bp_next), PACK(csize - asize, 0));
-        PUT(FTRP(bp_next), PACK(csize - asize, 0));
+        PUT(HDRP(bp_next), csize - asize, 0);
+        PUT(FTRP(bp_next), csize - asize, 0);
 
     } else { 
         // Remainder block is too small. Update current block's header
-        PUT(HDRP(bp), PACK(csize, 1));
-        PUT(FTRP(bp), PACK(csize, 1));
+        PUT(HDRP(bp), csize, 1);
+        PUT(FTRP(bp), csize, 1);
     }
     return bp;
 }
@@ -218,8 +226,8 @@ static void* place(void* bp, size_t asize) {
 void mm_free(void* bp) {
     size_t size = GET_SIZE(bp);
 
-    PUT(HDRP(bp), PACK(size, 0)); // reset header bit
-    PUT(FTRP(bp), PACK(size, 0)); // reset footer bit
+    PUT(HDRP(bp), size, 0); // reset header bit
+    PUT(FTRP(bp), size, 0); // reset footer bit
     coalesce(bp);
 }
 
@@ -264,4 +272,10 @@ void* mm_realloc(void* ptr, size_t newSize) {
 /* Checks the heap for correctness. Call this function using mm_check(__LINE__) */
 void mm_check(int lineno) {
     printf("checkheap called from %d\n", lineno);
+    // check for invariants
+    // is every block in the free list marked as free?
+    // are there any contiguous free blocks that somehow escaped coalescing?
+    // is every free block actually in the free list?
+    
+
 }
