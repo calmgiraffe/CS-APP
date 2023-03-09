@@ -85,9 +85,11 @@ int mm_init(void)
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) {
         return -1;
     }
-    //root = heap_listp;
-    //SET_PREV_PTR(root, 0);
-    //SET_NEXT_PTR(root, 0);
+    // Set root to point to the newly created single linked list
+    // [x] created the initial element of the linked list
+    root = heap_listp + 2*WSIZE;
+    SET_PREV_PTR(root, NULL);
+    SET_NEXT_PTR(root, NULL);
     return 0;
 }
 
@@ -98,7 +100,7 @@ int mm_init(void)
  * Returns NULL on error. 
  */
 static void* extend_heap(size_t words) {
-    char *bp;
+    char* bp;
     size_t size;
 
     /* Extend by an even number of words to maintain alignment. */
@@ -112,7 +114,8 @@ static void* extend_heap(size_t words) {
     PUT(FTRP(bp), size, 0);
     PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // placing new epilogue block
 
-    return coalesce(bp);
+    bp = coalesce(bp);
+    return bp;
 }
 
 /* Given a block pointer bp to a free block, coalesce curr block with the prev
@@ -120,6 +123,7 @@ static void* extend_heap(size_t words) {
  * coalesced block. If bp is not free, behavior is undefined.
  */
 static void* coalesce(void* bp) {
+    // TODO: edit to match for linked list
     size_t prevIsAlloc = GET_ALLOC(PREV_BLKP(bp));
     size_t nextIsAlloc = GET_ALLOC(NEXT_BLKP(bp));
     size_t size = GET_SIZE(bp);
@@ -130,20 +134,35 @@ static void* coalesce(void* bp) {
     case 4: both next and prev blocks are free
     */
     if (prevIsAlloc && nextIsAlloc) {
+        // [x] Insert freed block at the root of the list
+        /*
+        SET_PREV_PTR(bp, NULL); 
+        SET_NEXT_PTR(bp, root); // bp.next = head
+        SET_PREV_PTR(root, bp); // head.prev = bp
+        root = bp; // root = bp
+        */
         return bp;
 
     } else if (prevIsAlloc && !nextIsAlloc) {
+        // [x] Splice out successor block, coalesce both memory blocks and insert
+        // the new block at the end of the list
         size += GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(bp), size, 0);
         PUT(FTRP(bp), size, 0);
 
+        // void* bpNext = NEXT_BLKP(bp);
+
     } else if (!prevIsAlloc && nextIsAlloc) {
+        // [x] Splice out predecessor block, coalesce both memory blocks and insert
+        // the new block at the end of the list
         size += GET_SIZE(PREV_BLKP(bp));
         PUT(FTRP(bp), size, 0);            // reset curr footer
         PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         bp = PREV_BLKP(bp);
 
     } else {
+        // [x] Splice out predecessor & sucessor block, coalesce both memory blocks and insert
+        // the new block at the end of the list
         size += GET_SIZE(PREV_BLKP(bp)) + GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         PUT(FTRP(NEXT_BLKP(bp)), size, 0); // reset next footer
@@ -157,16 +176,21 @@ static void* coalesce(void* bp) {
  */
 void* mm_malloc(size_t size) {
     size_t allocSize; // adjusted block size
-    char *bp;
+    char* bp;
 
-    /* Adjust block size to include overhead and alignment reqs
-    i.e., enforce the minimum block size of 16 blocks and 8 B alignment */
+    /* Adjust block size to include overhead and alignment reqs. 
+    A next & prev pointer, a header, and a footer take up 24 B-- thus, this is
+    the minimum block size. The payload area will be 16 B.
+
+    If <= 16 B is requested, data will fit in the minimum block size of 24. 
+    Else, round up to the nearest multiple of 8.
+    */
     if (size == 0) {
         return NULL;
-    } else if (size < DSIZE) {
-        allocSize = 2*DSIZE;
+    } else if (size <= 2*DSIZE) {
+        allocSize = 3*DSIZE;
     } else {
-        allocSize = DSIZE * ((size + (DSIZE) + (DSIZE-1)) / DSIZE);
+        allocSize = DSIZE * ((size + DSIZE + (DSIZE-1)) / DSIZE);
     }
     /* Search the free list for a fit and places requested allocated block. */
     bp = find_fit(allocSize);
@@ -182,15 +206,23 @@ void* mm_malloc(size_t size) {
  */
 // NOTE can probably refactor this into malloc()
 static void* find_fit(size_t asize) {
-    void* bp = heap_listp;
+    void* bp = root;
 
-    // First fit search: iterate through blocks until valid block found
+    /*
+    // First fit search: traverse linked lists until valid block found
+    while (bp != NULL) {
+        if (!GET_ALLOC(bp) && (asize <= GET_SIZE(bp))) {
+            return bp;
+        }
+        bp = *((void**) (char*) bp + 8); // NOTE: this is probably correct for explicit free lists
+    }
+    */
     while (GET_SIZE(bp) > 0) {
         if (!GET_ALLOC(bp) && (asize <= GET_SIZE(bp))) {
             return bp;
         }
         bp = NEXT_BLKP(bp);
-    }    
+    }
     // No fit found. Get more memory and place the block. On error, bp = NULL
     size_t extendsize = MAX(asize, CHUNKSIZE);
     bp = extend_heap(extendsize/WSIZE);
@@ -204,8 +236,8 @@ static void* place(void* bp, size_t asize) {
     // Get the size of the current block
     size_t csize = GET_SIZE(bp);
 
-    // If remainder block size >= 16 
-    if ((csize - asize) >= (2*DSIZE)) {
+    // If remainder block size >= 24
+    if ((csize - asize) >= (3*DSIZE)) {
         // Update header and footer of requested block.
         // Note: FTRP depends on size value within header
         PUT(HDRP(bp), asize, 1);
