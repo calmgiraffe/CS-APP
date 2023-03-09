@@ -35,7 +35,11 @@ team_t team = {
 // Return the maximum of x and y.
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 // Pack the given size and alloc bit, then place at addr p as a 4B unsigned int.
-#define PUT(p, size, alloc) (*(unsigned int *) (p) = ((size) | (alloc))) 
+#define PUT(p, size, alloc) (*(unsigned int *) (p) = ((size) | (alloc)))
+// Given a block pointer bp, sets the pointer of its prev pointer
+#define SET_PREV_PTR(bp, ptr) (*(void**) (bp) = (void*) (ptr))
+// Given a block pointer bp, sets the pointer of its next pointer
+#define SET_NEXT_PTR(bp, ptr) (*(void**) ((char *) bp + 8) = (void*) (ptr))
 // Return the header address of the block, pointed to by bp.
 #define HDRP(bp) ((char *) (bp) - WSIZE)
 // Return the footer address of the block bp, pointed to by bp.
@@ -54,14 +58,16 @@ team_t team = {
 // #define checkheap(lineno)
 
 static void* heap_listp; // pointer to first byte of heap
-
-/* Prototypes */
-static void *coalesce(void* bp);
+static void* root; // pointer to beginning of linked list of free blocks
+static void* coalesce(void* bp);
 static void* find_fit(size_t asize);
 static void* place(void *bp, size_t asize);
 static void* extend_heap(size_t words);
 
-/* Initialize the malloc package.
+/* Initialize the malloc package. Places prologue and eplilogue headers, then
+ * extends the heap by CHUNKSIZE. Points heap_listp to the empty payload of the
+ * prologue, i.e., the prologue footer.
+ * 
  * Returns 0 if sucessful, -1 if error. 
  */
 int mm_init(void)
@@ -70,20 +76,24 @@ int mm_init(void)
     if ((long) heap_listp == -1) {
         return -1;
     }
-    PUT(heap_listp, 0, 0);                          // Alignment padding
+    PUT(heap_listp, 0, 0);               // Alignment padding
     PUT(heap_listp + 1*WSIZE, DSIZE, 1); // Prologue header
     PUT(heap_listp + 2*WSIZE, DSIZE, 1); // Prologue footer
     PUT(heap_listp + 3*WSIZE, 0, 1);     // Epilogue header
     heap_listp += 2*WSIZE;
 
-    /* Extend the empty heap with a free block of CHUNKSIZE bytes */
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) {
         return -1;
     }
+    //root = heap_listp;
+    //SET_PREV_PTR(root, 0);
+    //SET_NEXT_PTR(root, 0);
     return 0;
 }
 
-/* Extend the heap by "words" number of words. 
+/* Extend the heap by "words" number of words. Newly allocated heap memory is
+ * effectively appended to the end of the current heap.
+ *
  * Returns a generic pointer to the newly allocated block if successful.
  * Returns NULL on error. 
  */
@@ -91,35 +101,28 @@ static void* extend_heap(size_t words) {
     char *bp;
     size_t size;
 
-    /* Allocate an even number of words to maintain alignment.
-    Expand the heap by 'size' B, setting bp to the first B of the newly allocated heap area */
+    /* Extend by an even number of words to maintain alignment. */
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     bp = mem_sbrk(size);
     if ((long) bp == -1) {
         return NULL;
     }
-    /* Initialize free block header/footer and the epilogue header.
-
-    put block size + 0 bit at header address, which is 4 bytes before bp
-    put block size + 0 bit at footer address, which is 8 bytes before mem_brk
-    put new epilogue header 4 bytes before mem_brk 
-    note: the old epilogue header becomes the new block header */
-    PUT(HDRP(bp), size, 0);
+    /* Within the new free block, place header, footer, and the epilogue header. */
+    PUT(HDRP(bp), size, 0); // old epilogue block becomes the new block header
     PUT(FTRP(bp), size, 0);
-    PUT(HDRP(NEXT_BLKP(bp)), 0, 1);
+    PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // placing new epilogue block
 
     return coalesce(bp);
 }
 
-/* Given a block pointer bp pointing to a free block, coalesce the prev and next
- * blocks if they are also free. Returns a pointer to the start of the coalesced block.
+/* Given a block pointer bp to a free block, coalesce curr block with the prev
+ * and next blocks if possible. Returns a pointer to the start of the newly
+ * coalesced block. If bp is not free, behavior is undefined.
  */
 static void* coalesce(void* bp) {
-
     size_t prevIsAlloc = GET_ALLOC(PREV_BLKP(bp));
     size_t nextIsAlloc = GET_ALLOC(NEXT_BLKP(bp));
     size_t size = GET_SIZE(bp);
-
     /*
     case 1: prev and next blocks are allocated
     case 2: next block is free
@@ -276,6 +279,4 @@ void mm_check(int lineno) {
     // is every block in the free list marked as free?
     // are there any contiguous free blocks that somehow escaped coalescing?
     // is every free block actually in the free list?
-    
-
 }

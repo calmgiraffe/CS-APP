@@ -1,0 +1,9 @@
+{
+    "makefile.launchConfigurations": [
+        {
+            "cwd": "/home/hans/Desktop/cs app/malloclab-handout",
+            "binaryPath": "/home/hans/Desktop/cs app/malloclab-handout/mdriver",
+            "binaryArgs": []
+        }
+    ]
+}
