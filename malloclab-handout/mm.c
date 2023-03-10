@@ -63,6 +63,8 @@ static void* find_fit(size_t asize);
 static void* place(void *bp, size_t asize);
 static void* extend_heap(size_t words);
 void mm_check(int lineno);
+inline static void insert_block(void* bp);
+inline static void remove_block(void* bp);
 
 /* Initialize the malloc package. Places prologue and eplilogue headers, then
  * extends the heap by CHUNKSIZE. Points heap_listp to the empty payload of the
@@ -71,9 +73,6 @@ void mm_check(int lineno);
  * Returns 0 if sucessful, -1 if error. 
  */
 int mm_init(void) {
-    /* Debugging */
-    printf(__func__);
-    checkheap(__LINE__);
 
     char* heap_listp = mem_sbrk(4*WSIZE);
     if ((long) heap_listp == -1) {
@@ -100,17 +99,11 @@ int mm_init(void) {
  * Returns NULL on error. 
  */
 static void* extend_heap(size_t words) {
-    /* Debugging */
-    printf(__func__);
-    checkheap(__LINE__);
-
-    char* bp;
-    size_t size;
 
     /* Extend by an even num of words (8 B) to maintain double word alignment.
     Then get a pointer to the first B of the new heap area. */
-    size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
-    bp = mem_sbrk(size);
+    size_t size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
+    char* bp = mem_sbrk(size);
     if ((long) bp == -1) {
         return NULL;
     }
@@ -118,6 +111,10 @@ static void* extend_heap(size_t words) {
     PUT(HDRP(bp), size, 0); // old epilogue block becomes the new block header
     PUT(FTRP(bp), size, 0);
     PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // placing new epilogue block
+
+    /* Debugging */
+    printf(__func__);
+    checkheap(__LINE__);
 
     bp = coalesce(bp);
     return bp;
@@ -130,8 +127,8 @@ static void* extend_heap(size_t words) {
  * If bp is not free, behavior is undefined.
  */
 static void* coalesce(void* bp) {
-    size_t prevIsAlloc = GET_ALLOC(PREV_BLKP(bp));
-    size_t nextIsAlloc = GET_ALLOC(NEXT_BLKP(bp));
+    size_t prevIsFree = !GET_ALLOC(PREV_BLKP(bp));
+    size_t nextIsFree = !GET_ALLOC(NEXT_BLKP(bp));
     size_t size = GET_SIZE(bp);
     /*
     case 1: prev and next blocks are allocated
@@ -139,20 +136,15 @@ static void* coalesce(void* bp) {
     case 3: prev block is free
     case 4: both next and prev blocks are free
     */
-    if (prevIsAlloc && nextIsAlloc) {
+    if (!prevIsFree && !nextIsFree) {
         /* Debugging */
         printf(__func__);
         printf(" case 1");
         checkheap(__LINE__);
+        
+        insert_block(bp);
 
-        // Insert freed block at the root of the list
-        // TODO: inline function for this?
-        SET_PREV_PTR(bp, NULL); // bp.prev = null
-        SET_NEXT_PTR(bp, root); // bp.next = head
-        SET_PREV_PTR(root, bp); // head.prev = bp
-        root = bp;              // root = bp
-
-    } else if (prevIsAlloc && !nextIsAlloc) {
+    } else if (!prevIsFree && nextIsFree) {
         /* Debugging */
         printf(__func__);
         printf(" case 2");
@@ -171,14 +163,9 @@ static void* coalesce(void* bp) {
         PUT(HDRP(bp), size, 0);
         PUT(FTRP(bp), size, 0);
 
-        // Insert freed block at the front of the list sequence
-        SET_PREV_PTR(bp, NULL); // bp.prev = null
-        SET_NEXT_PTR(bp, root); // bp.next = head
-        SET_PREV_PTR(root, bp); // head.prev = bp
-        root = bp;              // root = bp
+        insert_block(bp);
 
-
-    } else if (!prevIsAlloc && nextIsAlloc) {
+    } else if (prevIsFree && !nextIsFree) {
         /* Debugging */
         printf(__func__);
         printf(" case 3");
@@ -197,11 +184,7 @@ static void* coalesce(void* bp) {
         PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         bp = PREV_BLKP(bp);
 
-        // Insert freed block at the front of the list sequence
-        SET_PREV_PTR(bp, NULL); // bp.prev = null
-        SET_NEXT_PTR(bp, root); // bp.next = head
-        SET_PREV_PTR(root, bp); // head.prev = bp
-        root = bp;              // root = bp 
+        insert_block(bp);
 
     } else {
         /* Debugging */
@@ -229,13 +212,21 @@ static void* coalesce(void* bp) {
         PUT(FTRP(NEXT_BLKP(bp)), size, 0); // reset next footer
         bp = PREV_BLKP(bp);
 
-        // Insert the new block at the end of the list sequence
-        SET_PREV_PTR(bp, NULL); // bp.prev = null
-        SET_NEXT_PTR(bp, root); // bp.next = head
-        SET_PREV_PTR(root, bp); // head.prev = bp
-        root = bp;              // root = bp 
+        insert_block(bp);
     }
     return bp;
+}
+
+inline static void remove_block(void* bp) {
+    return;
+}
+
+// Insert freed block at the front of the list sequence
+inline static void insert_block(void* bp) {
+    SET_PREV_PTR(bp, NULL); // bp.prev = null
+    SET_NEXT_PTR(bp, root); // bp.next = head
+    SET_PREV_PTR(root, bp); // head.prev = bp
+    root = bp;              // root = bp
 }
 
 /* Allocate a block whose size is a multiple of the alignment.
@@ -249,7 +240,6 @@ void* mm_malloc(size_t payloadSize) {
     checkheap(__LINE__);
 
     size_t adjustedSize; // adjusted block size
-    char* bp;
 
     /* Adjust block size to include overhead and alignment reqs. 
     A next & prev pointer, a header, and a footer take up 24 B-- thus, this is
@@ -268,7 +258,7 @@ void* mm_malloc(size_t payloadSize) {
     }
     /* Search the free list for a fit and places requested allocated block. */
     // TODO: too many dependancies: refactor/combine find_fit, place, mm_malloc
-    bp = find_fit(adjustedSize);
+    void* bp = find_fit(adjustedSize);
     if (bp != NULL) {
         // if we get to this point, adjustedSize <= block size
         place(bp, adjustedSize);
@@ -291,19 +281,11 @@ static void* find_fit(size_t asize) {
 
     // First fit search: traverse linked lists until valid free block found
     while (bp != NULL) {
-        if (!GET_ALLOC(bp) && (asize <= GET_SIZE(bp))) {
+        if (asize <= GET_SIZE(bp)) {
             return bp;
         }
-        bp = *(void**) ((char*) bp + 8); // NOTE: this is probably correct for explicit free lists
+        bp = *(void**) ((char*) bp + 8);
     }
-    /*
-    while (GET_SIZE(bp) > 0) {
-        if (!GET_ALLOC(bp) && (asize <= GET_SIZE(bp))) {
-            return bp;
-        }
-        bp = NEXT_BLKP(bp);
-    }
-    */
     // No fit found. Get more memory and place the block. On error, bp = NULL
     size_t extendsize = MAX(asize, CHUNKSIZE);
     bp = extend_heap(extendsize/WSIZE);
@@ -325,6 +307,7 @@ static void* place(void* bp, size_t asize) {
 
     // If remainder block size >= 24, split it and append it to list
     if ((csize - asize) >= (3*DSIZE)) {
+        checkheap(__LINE__);
         // Update header and footer of requested block.
         // Note: FTRP depends on size value within header
         PUT(HDRP(bp), asize, 1);
@@ -334,19 +317,17 @@ static void* place(void* bp, size_t asize) {
         void* bp_next = NEXT_BLKP(bp);
         PUT(HDRP(bp_next), csize - asize, 0);
         PUT(FTRP(bp_next), csize - asize, 0);
-
-        // [x] Insert the split block at the end of the list sequence
-        SET_PREV_PTR(bp, NULL); // bp.prev = null
-        SET_NEXT_PTR(bp, root); // bp.next = head
-        SET_PREV_PTR(root, bp); // head.prev = bp
-        root = bp;              // root = bp 
+        
+        insert_block(bp);
 
     } else { 
+        checkheap(__LINE__);
         // Remainder block is too small. Just update the alloc bit
         PUT(HDRP(bp), csize, 1);
         PUT(FTRP(bp), csize, 1);
 
         // [x] Connect prev and next
+        // FIXME: need to check that tmp_prev and tmp_next are valid pointers. Can maybe fix with sentinel nodes? 
         void* tmp_prev = *(void**) bp;
         void* tmp_next = *(void**) ((char*) bp + 8);
         SET_NEXT_PTR(tmp_prev, tmp_next);
@@ -359,8 +340,6 @@ static void* place(void* bp, size_t asize) {
  * Assume bp points to the start of a block.
  */
 void mm_free(void* bp) {
-    printf(__func__);
-    checkheap(__LINE__);
     size_t size = GET_SIZE(bp);
 
     PUT(HDRP(bp), size, 0); // reset header bit
@@ -378,9 +357,6 @@ void mm_free(void* bp) {
  * If error, returns NULL.
  */
 void* mm_realloc(void* ptr, size_t newSize) {
-    printf(__func__);
-    checkheap(__LINE__);
-
     void* newptr;
     
     if (ptr == NULL) {
@@ -414,7 +390,7 @@ void* mm_realloc(void* ptr, size_t newSize) {
 /* Checks the heap for correctness. Call this function using checkheap(__LINE__) */
 void mm_check(int lineno) {
     // check for invariants
-    // is every block in the free list marked as free?
+
     // are there any contiguous free blocks that somehow escaped coalescing?
     // is every free block actually in the free list?
     printf(" called from %d\n", lineno);
