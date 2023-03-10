@@ -36,10 +36,10 @@ team_t team = {
 #define MAX(x, y) ((x) > (y) ? (x) : (y))
 // Pack the given size and alloc bit, then place at addr p as a 4B unsigned int.
 #define PUT(p, size, alloc) (*(unsigned int *) (p) = ((size) | (alloc)))
-// Given a block pointer bp, sets the pointer of its prev pointer
+// Given a block pointer bp, set the value of the 8 B area that points to the prev free block
 #define SET_PREV_PTR(bp, ptr) (*(void**) (bp) = (void*) (ptr))
-// Given a block pointer bp, sets the pointer of its next pointer
-#define SET_NEXT_PTR(bp, ptr) (*(void**) ((char *) bp + 8) = (void*) (ptr))
+// Given a block pointer bp, set the value of the 8 B area that points to the next free block
+#define SET_NEXT_PTR(bp, ptr) (*(void**) ((char *) bp + sizeof(void*)) = (void*) (ptr))
 // Return the header address of the block, pointed to by bp.
 #define HDRP(bp) ((char *) (bp) - WSIZE)
 // Return the footer address of the block bp, pointed to by bp.
@@ -54,15 +54,15 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7))
 
 /* Heapchecker - comment/uncomment to disable and enable */
-#define checkheap(lineno) (mm_checkheap(lineno))
+#define checkheap(lineno) (mm_check(lineno))
 // #define checkheap(lineno)
 
-static void* heap_listp; // pointer to first byte of heap
 static void* root; // pointer to beginning of linked list of free blocks
 static void* coalesce(void* bp);
 static void* find_fit(size_t asize);
 static void* place(void *bp, size_t asize);
 static void* extend_heap(size_t words);
+void mm_check(int lineno);
 
 /* Initialize the malloc package. Places prologue and eplilogue headers, then
  * extends the heap by CHUNKSIZE. Points heap_listp to the empty payload of the
@@ -72,7 +72,7 @@ static void* extend_heap(size_t words);
  */
 int mm_init(void)
 {   
-    heap_listp = mem_sbrk(4*WSIZE);
+    char* heap_listp = mem_sbrk(4*WSIZE);
     if ((long) heap_listp == -1) {
         return -1;
     }
@@ -80,14 +80,11 @@ int mm_init(void)
     PUT(heap_listp + 1*WSIZE, DSIZE, 1); // Prologue header
     PUT(heap_listp + 2*WSIZE, DSIZE, 1); // Prologue footer
     PUT(heap_listp + 3*WSIZE, 0, 1);     // Epilogue header
-    heap_listp += 2*WSIZE;
+    root = heap_listp + 4*WSIZE;         // set root to point to payload
 
     if (extend_heap(CHUNKSIZE/WSIZE) == NULL) {
         return -1;
     }
-    // Set root to point to the newly created single linked list
-    // [x] created the initial element of the linked list
-    root = heap_listp + 2*WSIZE;
     SET_PREV_PTR(root, NULL);
     SET_NEXT_PTR(root, NULL);
     return 0;
@@ -103,7 +100,8 @@ static void* extend_heap(size_t words) {
     char* bp;
     size_t size;
 
-    /* Extend by an even number of words to maintain alignment. */
+    /* Extend by an even num of words (8 B) to maintain double word alignment.
+    Then get a pointer to the first B of the new heap area. */
     size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     bp = mem_sbrk(size);
     if ((long) bp == -1) {
@@ -118,12 +116,13 @@ static void* extend_heap(size_t words) {
     return bp;
 }
 
-/* Given a block pointer bp to a free block, coalesce curr block with the prev
- * and next blocks if possible. Returns a pointer to the start of the newly
- * coalesced block. If bp is not free, behavior is undefined.
+/* Given a block pointer bp to a free block, coalesce current block with the
+ * previous and next blocks if possible. 
+ * 
+ * If bp is free, returns a pointer to the start of the newly coalesced block.
+ * If bp is not free, behavior is undefined.
  */
 static void* coalesce(void* bp) {
-    // TODO: edit to match for linked list
     size_t prevIsAlloc = GET_ALLOC(PREV_BLKP(bp));
     size_t nextIsAlloc = GET_ALLOC(NEXT_BLKP(bp));
     size_t size = GET_SIZE(bp);
@@ -134,48 +133,101 @@ static void* coalesce(void* bp) {
     case 4: both next and prev blocks are free
     */
     if (prevIsAlloc && nextIsAlloc) {
-        // [x] Insert freed block at the root of the list
-        /*
-        SET_PREV_PTR(bp, NULL); 
+        // Insert freed block at the root of the list
+        // TODO: inline function for this?
+        checkheap(__LINE__);
+
+        SET_PREV_PTR(bp, NULL); // bp.prev = null
         SET_NEXT_PTR(bp, root); // bp.next = head
         SET_PREV_PTR(root, bp); // head.prev = bp
-        root = bp; // root = bp
-        */
-        return bp;
+        root = bp;              // root = bp
 
     } else if (prevIsAlloc && !nextIsAlloc) {
-        // [x] Splice out successor block, coalesce both memory blocks and insert
-        // the new block at the end of the list
+        // Splice out successor block
+        // TODO: inline function for this?
+        checkheap(__LINE__);
+
+        void** bp_next = (void**) NEXT_BLKP(bp);
+        void* tmp_prev = *bp_next;
+        void* tmp_next = *(void**) ((char*) bp + 8);
+        SET_NEXT_PTR(tmp_prev, tmp_next);
+        SET_PREV_PTR(tmp_next, tmp_prev);
+
+        // coalesce blocks
         size += GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(bp), size, 0);
         PUT(FTRP(bp), size, 0);
 
-        // void* bpNext = NEXT_BLKP(bp);
+        // Insert freed block at the front of the list sequence
+        SET_PREV_PTR(bp, NULL); // bp.prev = null
+        SET_NEXT_PTR(bp, root); // bp.next = head
+        SET_PREV_PTR(root, bp); // head.prev = bp
+        root = bp;              // root = bp
+
 
     } else if (!prevIsAlloc && nextIsAlloc) {
-        // [x] Splice out predecessor block, coalesce both memory blocks and insert
-        // the new block at the end of the list
+        checkheap(__LINE__);
+
+        // Splice out predecessor block
+        void** bp_prev = (void**) PREV_BLKP(bp);
+        void* tmp_prev = *bp_prev;
+        void* tmp_next = *(void**) ((char*) bp + 8);
+        SET_NEXT_PTR(tmp_prev, tmp_next);
+        SET_PREV_PTR(tmp_next, tmp_prev);
+
+        // coalesce blocks
         size += GET_SIZE(PREV_BLKP(bp));
         PUT(FTRP(bp), size, 0);            // reset curr footer
         PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         bp = PREV_BLKP(bp);
 
+        // Insert freed block at the front of the list sequence
+        SET_PREV_PTR(bp, NULL); // bp.prev = null
+        SET_NEXT_PTR(bp, root); // bp.next = head
+        SET_PREV_PTR(root, bp); // head.prev = bp
+        root = bp;              // root = bp 
+
     } else {
-        // [x] Splice out predecessor & sucessor block, coalesce both memory blocks and insert
-        // the new block at the end of the list
+        checkheap(__LINE__);
+
+        // Splice out successor block
+        void** bp_next = (void**) NEXT_BLKP(bp);
+        void* tmp_prev = *bp_next;
+        void* tmp_next = *(void**) ((char*) bp + 8);
+        SET_NEXT_PTR(tmp_prev, tmp_next);
+        SET_PREV_PTR(tmp_next, tmp_prev);
+
+        // Splice out predecessor block
+        void** bp_prev = (void**) PREV_BLKP(bp);
+        tmp_prev = *bp_prev;
+        tmp_next = *(void**) ((char*) bp + 8);
+        SET_NEXT_PTR(tmp_prev, tmp_next);
+        SET_PREV_PTR(tmp_next, tmp_prev);
+        
+        // coalesce both memory blocks
         size += GET_SIZE(PREV_BLKP(bp)) + GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         PUT(FTRP(NEXT_BLKP(bp)), size, 0); // reset next footer
         bp = PREV_BLKP(bp);
+
+        // Insert the new block at the end of the list sequence
+        SET_PREV_PTR(bp, NULL); // bp.prev = null
+        SET_NEXT_PTR(bp, root); // bp.next = head
+        SET_PREV_PTR(root, bp); // head.prev = bp
+        root = bp;              // root = bp 
     }
     return bp;
 }
 
 /* Allocate a block whose size is a multiple of the alignment.
- * Returns a pointer to the newly allocated block if successful, NULL on error.
+ *
+ * If successful, returns a pointer to the newly allocated block.
+ * If error, such as no more heap memory to extend, returns NULL.
  */
-void* mm_malloc(size_t size) {
-    size_t allocSize; // adjusted block size
+void* mm_malloc(size_t payloadSize) {
+    checkheap(__LINE__);
+
+    size_t adjustedSize; // adjusted block size
     char* bp;
 
     /* Adjust block size to include overhead and alignment reqs. 
@@ -183,46 +235,51 @@ void* mm_malloc(size_t size) {
     the minimum block size. The payload area will be 16 B.
 
     If <= 16 B is requested, data will fit in the minimum block size of 24. 
-    Else, round up to the nearest multiple of 8.
+    Else, round up to the nearest multiple of 8 and add 8.
+    For example, 17 becomes 24, then 32.
     */
-    if (size == 0) {
+    if (payloadSize == 0) {
         return NULL;
-    } else if (size <= 2*DSIZE) {
-        allocSize = 3*DSIZE;
+    } else if (payloadSize <= 2*DSIZE) {
+        adjustedSize = 3*DSIZE;
     } else {
-        allocSize = DSIZE * ((size + DSIZE + (DSIZE-1)) / DSIZE);
+        adjustedSize = DSIZE * ((payloadSize + DSIZE + (DSIZE-1)) / DSIZE);
     }
     /* Search the free list for a fit and places requested allocated block. */
-    bp = find_fit(allocSize);
+    // TODO: too many dependancies: refactor/combine find_fit, place, mm_malloc
+    bp = find_fit(adjustedSize);
     if (bp != NULL) {
-        place(bp, allocSize);
+        // if we get to this point, adjustedSize <= block size
+        place(bp, adjustedSize);
     }
     return bp;
 }
 
-/* Searches the free list for a suitable free block. If no fit, gets more memory
- * and places the block. If sucessful, returns a pointer to the beginning of 
- * the block. Returns NULL on error.
+/* Searches the free list for a suitable free block. If no fit, extends the
+ * heap and places a block of size asize, splicing remainder if necessary.
+ * 
+ * If sucessful, returns a pointer to the beginning of the block.
+ * If error, returns NULL.
  */
-// NOTE can probably refactor this into malloc()
 static void* find_fit(size_t asize) {
+    checkheap(__LINE__);
     void* bp = root;
 
-    /*
-    // First fit search: traverse linked lists until valid block found
+    // First fit search: traverse linked lists until valid free block found
     while (bp != NULL) {
         if (!GET_ALLOC(bp) && (asize <= GET_SIZE(bp))) {
             return bp;
         }
-        bp = *((void**) (char*) bp + 8); // NOTE: this is probably correct for explicit free lists
+        bp = *(void**) ((char*) bp + 8); // NOTE: this is probably correct for explicit free lists
     }
-    */
+    /*
     while (GET_SIZE(bp) > 0) {
         if (!GET_ALLOC(bp) && (asize <= GET_SIZE(bp))) {
             return bp;
         }
         bp = NEXT_BLKP(bp);
     }
+    */
     // No fit found. Get more memory and place the block. On error, bp = NULL
     size_t extendsize = MAX(asize, CHUNKSIZE);
     bp = extend_heap(extendsize/WSIZE);
@@ -230,27 +287,42 @@ static void* find_fit(size_t asize) {
 }
 
 /* Place the requested allocated block within the block, splits the excess,
- * and sets bp to the address of the newly allocated block. 
+ * and sets bp to the address of the newly allocated block.
+ *
+ * Returns the same passed-in bp pointer.
  */
 static void* place(void* bp, size_t asize) {
     // Get the size of the current block
     size_t csize = GET_SIZE(bp);
 
-    // If remainder block size >= 24
+    // If remainder block size >= 24, split it and append it to list
     if ((csize - asize) >= (3*DSIZE)) {
         // Update header and footer of requested block.
         // Note: FTRP depends on size value within header
         PUT(HDRP(bp), asize, 1);
         PUT(FTRP(bp), asize, 1);
+
         // Set the header and footer of next block
         void* bp_next = NEXT_BLKP(bp);
         PUT(HDRP(bp_next), csize - asize, 0);
         PUT(FTRP(bp_next), csize - asize, 0);
 
+        // [x] Insert the split block at the end of the list sequence
+        SET_PREV_PTR(bp, NULL); // bp.prev = null
+        SET_NEXT_PTR(bp, root); // bp.next = head
+        SET_PREV_PTR(root, bp); // head.prev = bp
+        root = bp;              // root = bp 
+
     } else { 
-        // Remainder block is too small. Update current block's header
+        // Remainder block is too small. Just update the alloc bit
         PUT(HDRP(bp), csize, 1);
         PUT(FTRP(bp), csize, 1);
+
+        // [x] Connect prev and next
+        void* tmp_prev = *(void**) bp;
+        void* tmp_next = *(void**) ((char*) bp + 8);
+        SET_NEXT_PTR(tmp_prev, tmp_next);
+        SET_PREV_PTR(tmp_next, tmp_prev);
     }
     return bp;
 }
@@ -259,6 +331,7 @@ static void* place(void* bp, size_t asize) {
  * Assume bp points to the start of a block.
  */
 void mm_free(void* bp) {
+    checkheap(__LINE__);
     size_t size = GET_SIZE(bp);
 
     PUT(HDRP(bp), size, 0); // reset header bit
@@ -266,12 +339,14 @@ void mm_free(void* bp) {
     coalesce(bp);
 }
 
-/* mm_realloc - Implemented simply in terms of mm_malloc and mm_free.
- * Returns a void pointer to the newly allocated block.
+/* mm_realloc - realloc payload data that ptr points to to a new payload of newSize.
  * If ptr = NULL, equivalent to mm_malloc(size).
  * If size is equal to zero, equivalent to mm_free(ptr).
- * If ptr != NULL, changes the size of the memory block pointed to by ptr
- * to size bytes and returns the address of the new block.
+ * If ptr != NULL, changes the size of the payload block pointed to by ptr to
+ * newSize bytes and returns the address of the new block.
+ *
+ * If successful, returns a pointer to the newly allocated block.
+ * If error, returns NULL.
  */
 void* mm_realloc(void* ptr, size_t newSize) {
     void* newptr;
@@ -304,7 +379,7 @@ void* mm_realloc(void* ptr, size_t newSize) {
     }
 }
 
-/* Checks the heap for correctness. Call this function using mm_check(__LINE__) */
+/* Checks the heap for correctness. Call this function using checkheap(__LINE__) */
 void mm_check(int lineno) {
     printf("checkheap called from %d\n", lineno);
     // check for invariants
