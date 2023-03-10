@@ -70,8 +70,11 @@ void mm_check(int lineno);
  * 
  * Returns 0 if sucessful, -1 if error. 
  */
-int mm_init(void)
-{   
+int mm_init(void) {
+    /* Debugging */
+    printf(__func__);
+    checkheap(__LINE__);
+
     char* heap_listp = mem_sbrk(4*WSIZE);
     if ((long) heap_listp == -1) {
         return -1;
@@ -97,6 +100,10 @@ int mm_init(void)
  * Returns NULL on error. 
  */
 static void* extend_heap(size_t words) {
+    /* Debugging */
+    printf(__func__);
+    checkheap(__LINE__);
+
     char* bp;
     size_t size;
 
@@ -133,20 +140,26 @@ static void* coalesce(void* bp) {
     case 4: both next and prev blocks are free
     */
     if (prevIsAlloc && nextIsAlloc) {
-        // Insert freed block at the root of the list
-        // TODO: inline function for this?
+        /* Debugging */
+        printf(__func__);
+        printf(" case 1");
         checkheap(__LINE__);
 
+        // Insert freed block at the root of the list
+        // TODO: inline function for this?
         SET_PREV_PTR(bp, NULL); // bp.prev = null
         SET_NEXT_PTR(bp, root); // bp.next = head
         SET_PREV_PTR(root, bp); // head.prev = bp
         root = bp;              // root = bp
 
     } else if (prevIsAlloc && !nextIsAlloc) {
-        // Splice out successor block
-        // TODO: inline function for this?
+        /* Debugging */
+        printf(__func__);
+        printf(" case 2");
         checkheap(__LINE__);
 
+        // Splice out successor block
+        // TODO: inline function for this?
         void** bp_next = (void**) NEXT_BLKP(bp);
         void* tmp_prev = *bp_next;
         void* tmp_next = *(void**) ((char*) bp + 8);
@@ -166,6 +179,9 @@ static void* coalesce(void* bp) {
 
 
     } else if (!prevIsAlloc && nextIsAlloc) {
+        /* Debugging */
+        printf(__func__);
+        printf(" case 3");
         checkheap(__LINE__);
 
         // Splice out predecessor block
@@ -188,6 +204,9 @@ static void* coalesce(void* bp) {
         root = bp;              // root = bp 
 
     } else {
+        /* Debugging */
+        printf(__func__);
+        printf(" case 4");
         checkheap(__LINE__);
 
         // Splice out successor block
@@ -225,6 +244,8 @@ static void* coalesce(void* bp) {
  * If error, such as no more heap memory to extend, returns NULL.
  */
 void* mm_malloc(size_t payloadSize) {
+    /* Debugging */
+    printf(__func__);
     checkheap(__LINE__);
 
     size_t adjustedSize; // adjusted block size
@@ -262,7 +283,10 @@ void* mm_malloc(size_t payloadSize) {
  * If error, returns NULL.
  */
 static void* find_fit(size_t asize) {
+    /* Debugging */
+    printf(__func__);
     checkheap(__LINE__);
+
     void* bp = root;
 
     // First fit search: traverse linked lists until valid free block found
@@ -292,6 +316,10 @@ static void* find_fit(size_t asize) {
  * Returns the same passed-in bp pointer.
  */
 static void* place(void* bp, size_t asize) {
+    /* Debugging */
+    printf(__func__);
+    checkheap(__LINE__);
+
     // Get the size of the current block
     size_t csize = GET_SIZE(bp);
 
@@ -331,6 +359,7 @@ static void* place(void* bp, size_t asize) {
  * Assume bp points to the start of a block.
  */
 void mm_free(void* bp) {
+    printf(__func__);
     checkheap(__LINE__);
     size_t size = GET_SIZE(bp);
 
@@ -349,6 +378,9 @@ void mm_free(void* bp) {
  * If error, returns NULL.
  */
 void* mm_realloc(void* ptr, size_t newSize) {
+    printf(__func__);
+    checkheap(__LINE__);
+
     void* newptr;
     
     if (ptr == NULL) {
@@ -381,9 +413,9 @@ void* mm_realloc(void* ptr, size_t newSize) {
 
 /* Checks the heap for correctness. Call this function using checkheap(__LINE__) */
 void mm_check(int lineno) {
-    printf("checkheap called from %d\n", lineno);
     // check for invariants
     // is every block in the free list marked as free?
     // are there any contiguous free blocks that somehow escaped coalescing?
     // is every free block actually in the free list?
+    printf(" called from %d\n", lineno);
 }
