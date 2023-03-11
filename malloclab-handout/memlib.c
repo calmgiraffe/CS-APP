@@ -43,9 +43,9 @@ void mem_reset_brk()
     mem_brk = mem_start_brk;
 }
 
-/* mem_sbrk - simple model of the sbrk function. Increments mem_brk by incr
- * bytes, where incr is a positive non-zero int. This has the effect of
- * expanding the heap by incr B.
+/* mem_sbrk - simple model of the sbrk function. Increments mem_brk pointer by 
+ * incr, where incr is a positive non-zero int. This has the effect of
+ * expanding the heap by incr bytes.
  *
  * Returns a generic pointer to the first byte of the newly allocated heap area,
  * i.e., the old pointer to mem_brk. If error, returns (void *) -1 */
@@ -56,7 +56,7 @@ void *mem_sbrk(int incr)
     if ( (incr < 0) || ((mem_brk + incr) > mem_max_addr)) {
         errno = ENOMEM;
         fprintf(stderr, "ERROR: mem_sbrk failed. Ran out of memory...\n");
-        return (void *)-1;
+        return (void *) -1;
     }
     mem_brk += incr;
     return (void *) old_brk;

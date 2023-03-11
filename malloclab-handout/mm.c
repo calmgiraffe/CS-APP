@@ -54,7 +54,7 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7))
 
 /* Heapchecker - comment/uncomment to disable and enable */
-#define checkheap(lineno) (mm_check(lineno))
+#define checkheap(lineno) printf("%s: ", __func__); (mm_check(lineno))
 // #define checkheap(lineno)
 
 static void* root; // pointer to beginning of linked list of free blocks
@@ -72,8 +72,7 @@ inline static void remove_block(void* bp);
  * 
  * Returns 0 if sucessful, -1 if error. 
  */
-int mm_init(void) {
-
+int mm_init(void) { // [x] verified correctness. Separate calls for each trace
     char* heap_listp = mem_sbrk(4*WSIZE);
     if ((long) heap_listp == -1) {
         return -1;
@@ -100,7 +99,6 @@ int mm_init(void) {
  * Returns NULL on error. 
  */
 static void* extend_heap(size_t words) {
-
     /* Extend by an even num of words (8 B) to maintain double word alignment.
     Then get a pointer to the first B of the new heap area. */
     size_t size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
@@ -108,13 +106,11 @@ static void* extend_heap(size_t words) {
     if ((long) bp == -1) {
         return NULL;
     }
-    /* Within the new free block, place header, footer, and the epilogue header. */
+    /* Within the new block, place header, footer, and the epilogue header. */
     PUT(HDRP(bp), size, 0); // old epilogue block becomes the new block header
     PUT(FTRP(bp), size, 0);
     PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // placing new epilogue block
-
-    bp = coalesce(bp);
-    return bp;
+    return coalesce(bp);
 }
 
 /* Given a block pointer bp to a free block, coalesce current block with the
@@ -145,7 +141,6 @@ static void* coalesce(void* bp) {
         size += GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(bp), size, 0);
         PUT(FTRP(bp), size, 0);
-
         insert_block(bp);
 
     } else if (prevIsFree && !nextIsFree) {
@@ -158,7 +153,6 @@ static void* coalesce(void* bp) {
         PUT(FTRP(bp), size, 0);            // reset curr footer
         PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         bp = PREV_BLKP(bp);
-
         insert_block(bp);
 
     } else {
@@ -175,7 +169,6 @@ static void* coalesce(void* bp) {
         PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
         PUT(FTRP(NEXT_BLKP(bp)), size, 0); // reset next footer
         bp = PREV_BLKP(bp);
-
         insert_block(bp);
     }
     return bp;
@@ -196,12 +189,13 @@ inline static void remove_block(void* bp) {
 
     } else if (bp_next == NULL) { // at end of list
         SET_NEXT_PTR(bp_prev, NULL);
-        SET_PREV_PTR(bp, NULL);
-
+    
     } else {
         SET_NEXT_PTR(bp_prev, bp_next);
         SET_PREV_PTR(bp_next, bp_prev);
     }
+    SET_NEXT_PTR(bp, NULL);
+    SET_PREV_PTR(bp, NULL);
 }
 
 // Insert freed block at the front of the list sequence
@@ -218,6 +212,7 @@ inline static void insert_block(void* bp) {
  * If error, such as no more heap memory to extend, returns NULL.
  */
 void* mm_malloc(size_t payloadSize) {
+    checkheap(__LINE__);
     size_t adjustedSize; // adjusted block size
 
     /* Adjust block size to include overhead and alignment reqs. 
@@ -226,8 +221,7 @@ void* mm_malloc(size_t payloadSize) {
 
     If <= 16 B is requested, data will fit in the minimum block size of 24. 
     Else, round up to the nearest multiple of 8 and add 8.
-    For example, 17 becomes 24, then 32.
-    */
+    For example, 17 becomes 24, then 32. */
     if (payloadSize == 0) {
         return NULL;
     } else if (payloadSize <= 2*DSIZE) {
@@ -236,8 +230,8 @@ void* mm_malloc(size_t payloadSize) {
         adjustedSize = DSIZE * ((payloadSize + DSIZE + (DSIZE-1)) / DSIZE);
     }
     /* Search the free list for a fit and places requested allocated block. */
-    // TODO: too many dependancies: refactor/combine find_fit, place, mm_malloc
-    void* bp = find_fit(adjustedSize);
+    printf("    block size is %d\n", adjustedSize);
+    void* bp = find_fit(adjustedSize); // TODO: too many dependancies: refactor/combine find_fit, place, mm_malloc
     if (bp != NULL) {
         // if we get to this point, adjustedSize <= block size
         place(bp, adjustedSize);
@@ -287,13 +281,11 @@ static void* place(void* bp, size_t asize) {
         void* bp_next = NEXT_BLKP(bp);
         PUT(HDRP(bp_next), csize - asize, 0);
         PUT(FTRP(bp_next), csize - asize, 0);
-
-        insert_block(bp);
+        insert_block(bp_next);
 
     } else { // Remainder block is too small. Just update the alloc bit
         PUT(HDRP(bp), csize, 1);
         PUT(FTRP(bp), csize, 1);
-
         remove_block(bp);
     }
     return bp;
@@ -303,6 +295,7 @@ static void* place(void* bp, size_t asize) {
  * Assume bp points to the start of a block.
  */
 void mm_free(void* bp) {
+    checkheap(__LINE__);
     size_t size = GET_SIZE(bp);
     PUT(HDRP(bp), size, 0); // reset header bit
     PUT(FTRP(bp), size, 0); // reset footer bit
@@ -319,6 +312,7 @@ void mm_free(void* bp) {
  * If error, returns NULL.
  */
 void* mm_realloc(void* ptr, size_t newSize) {
+    checkheap(__LINE__);
     void* newptr;
     
     if (ptr == NULL) {
@@ -353,5 +347,5 @@ void* mm_realloc(void* ptr, size_t newSize) {
 void mm_check(int lineno) {
     // are there any contiguous free blocks that somehow escaped coalescing?
     // is every free block actually in the free list?
-    printf(" called from %d\n", lineno);
+    printf("called from %d\n", lineno);
 }
