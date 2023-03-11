@@ -59,7 +59,6 @@ team_t team = {
 
 static void* root; // pointer to beginning of linked list of free blocks
 static void* coalesce(void* bp);
-static void* find_fit(size_t asize);
 static void* place(void *bp, size_t asize);
 static void* extend_heap(size_t words);
 void mm_check(int lineno);
@@ -73,6 +72,7 @@ inline static void remove_block(void* bp);
  * Returns 0 if sucessful, -1 if error. 
  */
 int mm_init(void) { // [x] verified correctness. Separate calls for each trace
+    checkheap(__LINE__);
     char* heap_listp = mem_sbrk(4*WSIZE);
     if ((long) heap_listp == -1) {
         return -1;
@@ -81,13 +81,22 @@ int mm_init(void) { // [x] verified correctness. Separate calls for each trace
     PUT(heap_listp + 1*WSIZE, DSIZE, 1); // Prologue header
     PUT(heap_listp + 2*WSIZE, DSIZE, 1); // Prologue footer
     PUT(heap_listp + 3*WSIZE, 0, 1);     // Epilogue header
-    root = heap_listp + 4*WSIZE;         // set root to point to payload
 
-    if (extend_heap(CHUNKSIZE/WSIZE) == NULL) {
+    /* Extend the heap by CHUNKSIZE, get pointer to first byte of new block.
+    Within the new block, place header, footer, and the epilogue. */
+    char* bp = mem_sbrk(CHUNKSIZE);
+    if ((long) bp == -1) {
         return -1;
     }
+    PUT(HDRP(bp), CHUNKSIZE, 0); // old epilogue becomes the new block header
+    PUT(FTRP(bp), CHUNKSIZE, 0);
+    PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // place new epilogue
+
+    /* Set initial empty link */
+    root = bp;
     SET_PREV_PTR(root, NULL);
     SET_NEXT_PTR(root, NULL);
+
     return 0;
 }
 
@@ -196,6 +205,7 @@ inline static void remove_block(void* bp) {
     }
     SET_NEXT_PTR(bp, NULL);
     SET_PREV_PTR(bp, NULL);
+    checkheap(__LINE__);
 }
 
 // Insert freed block at the front of the list sequence
@@ -204,6 +214,7 @@ inline static void insert_block(void* bp) {
     SET_NEXT_PTR(bp, root); // bp.next = head
     SET_PREV_PTR(root, bp); // head.prev = bp
     root = bp;              // root = bp
+    checkheap(__LINE__);
 }
 
 /* Allocate a block whose size is a multiple of the alignment.
@@ -229,35 +240,22 @@ void* mm_malloc(size_t payloadSize) {
     } else {
         adjustedSize = DSIZE * ((payloadSize + DSIZE + (DSIZE-1)) / DSIZE);
     }
-    /* Search the free list for a fit and places requested allocated block. */
-    printf("    block size is %d\n", adjustedSize);
-    void* bp = find_fit(adjustedSize); // TODO: too many dependancies: refactor/combine find_fit, place, mm_malloc
-    if (bp != NULL) {
-        // if we get to this point, adjustedSize <= block size
-        place(bp, adjustedSize);
-    }
-    return bp;
-}
-
-/* Searches the free list for a suitable free block. If no fit, extends the
- * heap and places a block of size asize, splicing remainder if necessary.
- * 
- * If sucessful, returns a pointer to the beginning of the block.
- * If error, returns NULL.
- */
-static void* find_fit(size_t asize) {
+    /* Traverse the linked list(s) until a fit is found */
     void* bp = root;
-
-    // First fit search: traverse linked lists until valid free block found
     while (bp != NULL) {
-        if (asize <= GET_SIZE(bp)) {
-            return bp;
+        if (adjustedSize <= GET_SIZE(bp)) {
+            break;
         }
         bp = *(void**) ((char*) bp + sizeof(void*));
     }
-    // No fit found. Get more memory and place the block. On error, bp = NULL
-    size_t extendsize = MAX(asize, CHUNKSIZE);
-    bp = extend_heap(extendsize/WSIZE);
+    if (bp == NULL) {  
+        // No fit found. Get more memory and place the block
+        // On extend_heap error, bp = NULL
+        size_t extendSize = MAX(adjustedSize, CHUNKSIZE);
+        bp = extend_heap(extendSize/WSIZE);
+        if (bp == NULL) return NULL;
+    }
+    place(bp, adjustedSize);
     return bp;
 }
 
@@ -267,9 +265,13 @@ static void* find_fit(size_t asize) {
  * Returns the same passed-in bp pointer.
  */
 static void* place(void* bp, size_t asize) {
+    checkheap(__LINE__);
+
     // Get the size of the current block
     size_t csize = GET_SIZE(bp);
+    printf("requested: %d; block size: %d\n", asize, csize);
 
+    // FIXME: if root points to block being placed, there will be an error
     // If remainder block size >= 24, split it and append it to list
     if ((csize - asize) >= (3*DSIZE)) {
         // Update header and footer of requested block.
@@ -347,5 +349,18 @@ void* mm_realloc(void* ptr, size_t newSize) {
 void mm_check(int lineno) {
     // are there any contiguous free blocks that somehow escaped coalescing?
     // is every free block actually in the free list?
-    printf("called from %d\n", lineno);
+    printf("called from %d. ", lineno);
+    printf("root = %p\n", root);
+
+    // do headers and footers match?
+    // is payload aligned?
+    // First fit search: traverse linked lists until valid free block found
+    void* bp = root;
+    while (bp != NULL) {
+        if (GET_ALLOC(bp)) {
+            printf("ERROR: Not all blocks in linked list are free\n");
+            exit(-1);
+        }
+        bp = *(void**) ((char*) bp + sizeof(void*));
+    }
 }
