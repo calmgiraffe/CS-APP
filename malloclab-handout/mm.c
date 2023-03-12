@@ -56,8 +56,8 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7))
 
 /* Heapchecker - comment/uncomment to disable and enable */
-#define checkheap(lineno) printf("%s: ", __func__); (mm_check(lineno))
-// #define checkheap(lineno)
+// #define checkheap(lineno) printf("%s: ", __func__); (mm_check(lineno))
+#define checkheap(lineno)
 
 static void* sentinel; // pointer to beginning of linked list of free blocks
 static void* coalesce(void* bp);
@@ -73,7 +73,7 @@ inline static void remove_block(void* bp);
  * 
  * Returns 0 if sucessful, -1 if error. 
  */
-int mm_init(void) { // [x] verified correctness
+int mm_init(void) {
     char* heap_ptr = mem_sbrk(10*WSIZE);
     if ((long) heap_ptr == -1) {
         return -1;
@@ -112,7 +112,7 @@ int mm_init(void) { // [x] verified correctness
  * Returns a generic pointer to the newly allocated block if successful.
  * Returns NULL on error. 
  */
-static void* extend_heap(size_t words) { // [x]
+static void* extend_heap(size_t words) {
     /* Extend by an even num of words (8 B) to maintain double word alignment.
     Then get a pointer to the first byte of the new heap area. 
     */
@@ -135,7 +135,7 @@ static void* extend_heap(size_t words) { // [x]
  * If bp is free, returns a pointer to the start of the newly coalesced block.
  * If bp is not free, behavior is undefined.
  */
-static void* coalesce(void* bp) { // [x]
+static void* coalesce(void* bp) {
     size_t prevIsFree = !GET_ALLOC(PREV_BLKP(bp));
     size_t nextIsFree = !GET_ALLOC(NEXT_BLKP(bp));
     size_t size = GET_SIZE(bp);
@@ -191,7 +191,7 @@ static void* coalesce(void* bp) { // [x]
     return bp;
 }
 
-/* Given a block pointer bp, remove this block from the linked list */ // [x]
+/* Given a block pointer bp, remove this block from the linked list */
 inline static void remove_block(void* bp) {
     void* bp_prev = PREV(bp);
     void* bp_next = NEXT(bp);
@@ -202,7 +202,7 @@ inline static void remove_block(void* bp) {
     checkheap(__LINE__);
 }
 
-/* Append block at the front of the linked list (in front of sentinel) */ // [x]
+/* Append block at the front of the linked list (in front of sentinel) */
 inline static void insert_block(void* bp) {
     SET_PREV(bp, sentinel);         // bp.prev = sentinel
     SET_NEXT(bp, NEXT(sentinel));   // bp.next = sentinel.next
@@ -245,7 +245,7 @@ void* mm_malloc(size_t payloadSize) {
             place(bp, adjustedSize);
             return bp;
         }
-        bp = NEXT(sentinel);
+        bp = NEXT(bp);
     }
     /* No fit found. Get more memory and place the block.
     On extend_heap error, bp = NULL */
@@ -268,7 +268,6 @@ static void place(void* bp, size_t allocSize) {
 
     // Get the size of the current block
     size_t currSize = GET_SIZE(bp);
-    printf("requested: %d; block size: %d\n", allocSize, currSize);
 
     // If remainder block size >= 24, split it and append it to list
     size_t remainder = currSize - allocSize;
