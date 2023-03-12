@@ -53,9 +53,10 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *) (bp) - (GET((char *) (bp) - DSIZE) & ~0x7))
 
 /* Heapchecker - comment/uncomment to disable and enable */
-// #define checkheap(lineno) printf("%s: ", __func__); (mm_check(lineno))
+//#define checkheap(lineno) printf("%s: ", __func__); (mm_check(lineno))
 #define checkheap(lineno)
 
+static void* heap_ptr; // pointer to very beginning of heap
 static void* sentinel; // pointer to beginning of linked list of free blocks
 static void* coalesce(void* bp);
 static void place(void *bp, size_t allocSize);
@@ -71,7 +72,7 @@ inline static void remove_block(void* bp);
  * Returns 0 if sucessful, -1 if error. 
  */
 int mm_init(void) {
-    char* heap_ptr = mem_sbrk(10*WSIZE);
+    heap_ptr = mem_sbrk(10*WSIZE);
     if ((long) heap_ptr == -1) {
         return -1;
     }
@@ -192,7 +193,6 @@ inline static void remove_block(void* bp) {
     void* bp_next = NEXT(bp);
     SET_NEXT(bp_prev, bp_next);
     SET_PREV(bp_next, bp_prev);
-    checkheap(__LINE__);
 }
 
 /* Append block at the front of the linked list (in front of sentinel) */
@@ -202,7 +202,6 @@ inline static void insert_block(void* bp) {
     void* tmp = NEXT(sentinel);     // tmp = sentinel.next
     SET_PREV(tmp, bp);              // tmp.prev = bp
     SET_NEXT(sentinel, bp);         // sentinel.next = bp
-    checkheap(__LINE__);
 }
 
 /* Allocate a block whose size is a multiple of the alignment.
@@ -263,6 +262,7 @@ static void place(void* bp, size_t allocSize) {
 
     // If remainder block size >= 24, split it and append it to list
     size_t remainder = currSize - allocSize;
+    // printf("requested: %d; block size: %d\n", allocSize, currSize);
     if (remainder >= MIN_BLOCK_SIZE) {
         // remove current block from linked list
         remove_block(bp);
@@ -306,7 +306,6 @@ void mm_free(void* bp) {
  * If error, returns NULL.
  */
 void* mm_realloc(void* ptr, size_t newSize) {
-    checkheap(__LINE__);
     void* new_ptr;
     
     if (ptr == NULL) {
@@ -329,6 +328,7 @@ void* mm_realloc(void* ptr, size_t newSize) {
                 memcpy(new_ptr, ptr, currSize);
             }
             mm_free(ptr);
+            checkheap(__LINE__);
             return new_ptr;
         }
     }
@@ -336,11 +336,8 @@ void* mm_realloc(void* ptr, size_t newSize) {
 
 /* Checks the heap for correctness. Call this function using checkheap(__LINE__) */
 void mm_check(int lineno) {
-    printf("called from %d. ", lineno);
+    printf("called from %d.\n", lineno);
 
-    // do headers and footers match?
-    // Is payload aligned?
-    // are there any contiguous free blocks that somehow escaped coalescing?
     // Is every free block actually in the free list?
     void* bp = NEXT(sentinel);
     while (bp != sentinel) {
@@ -349,5 +346,24 @@ void mm_check(int lineno) {
             exit(-1);
         }
         bp = NEXT(bp);
+    }
+    bp = heap_ptr + 10*WSIZE;
+    unsigned int prevIsFree = 0;
+    unsigned int currIsFree = 0;
+    while (GET_SIZE(bp) > 0) {
+        // Do headers and footers match?
+        if (GET(HDRP(bp)) != GET(FTRP(bp))) {
+            printf("ERROR: Not all header-footer pairs match\n");
+            exit(-1);
+        }
+        // Are there any contiguous free blocks that somehow escaped coalescing?
+        currIsFree = !GET_ALLOC(bp);
+        //printf("%p, %d, %d\n", bp, GET_SIZE(bp), currIsFree);
+        if (currIsFree && prevIsFree) {
+            printf("ERROR: not all continguous free blocks are coalesced\n");
+            exit(-1);
+        }
+        prevIsFree = currIsFree;
+        bp = NEXT_BLKP(bp);
     }
 }
