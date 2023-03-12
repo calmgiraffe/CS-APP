@@ -20,27 +20,29 @@ team_t team = {
 };
 
 /* Rounds up to the nearest multiple of ALIGNMENT */
-#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
+#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7) // NOTE: can remove this
 
 /* Basic constants and macros */
 #define ALIGNMENT 8 // single word (4) or double word (8)
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
+#define SIZE_T_SIZE (ALIGN(sizeof(size_t))) // = 8 on 64 b computer // NOTE: can remove this
 #define WSIZE 4
 #define DSIZE 8
 #define CHUNKSIZE (1<<12)
 
-/* Macro interface */
+/** Macro interface */
+// Given a block pointer bp, get the value of its 'prev' pointer.
+#define PREV(bp) (*(void**) bp)
+// Given a block pointer bp, get the value of its 'next' pointer.
+#define NEXT(bp) (*(void**) ((char*) bp + sizeof(void*)))
+// Given a block pointer bp, set the value its 'prev' pointer.
+#define SET_PREV(bp, ptr) (*(void**) (bp) = (void*) (ptr))
+// Given a block pointer bp, set the value of its 'next' pointer.
+#define SET_NEXT(bp, ptr) (*(void**) ((char *) bp + sizeof(void*)) = (void*) (ptr))
 // Return a word (4 B) at address p.
 #define GET(p) (*(unsigned int *) (p))
-// Return the maximum of x and y.
-#define MAX(x, y) ((x) > (y) ? (x) : (y))
 // Pack the given size and alloc bit, then place at addr p as a 4B unsigned int.
 #define PUT(p, size, alloc) (*(unsigned int *) (p) = ((size) | (alloc)))
-// Given a block pointer bp, set the value of the 8 B area that points to the prev free block
-#define SET_PREV_PTR(bp, ptr) (*(void**) (bp) = (void*) (ptr))
-// Given a block pointer bp, set the value of the 8 B area that points to the next free block
-#define SET_NEXT_PTR(bp, ptr) (*(void**) ((char *) bp + sizeof(void*)) = (void*) (ptr))
-// Return the header address of the block, pointed to by bp.
+// Return the header address of the block, pointed to by bp. // TODO: can maybe change this so there isn't a dependancy with HDRP
 #define HDRP(bp) ((char *) (bp) - WSIZE)
 // Return the footer address of the block bp, pointed to by bp.
 #define FTRP(bp) ((char *) (bp) + GET_SIZE(bp) - DSIZE)
@@ -57,45 +59,48 @@ team_t team = {
 #define checkheap(lineno) printf("%s: ", __func__); (mm_check(lineno))
 // #define checkheap(lineno)
 
-static void* root; // pointer to beginning of linked list of free blocks
+static void* sentinel; // pointer to beginning of linked list of free blocks
 static void* coalesce(void* bp);
-static void* place(void *bp, size_t asize);
+static void place(void *bp, size_t allocSize);
 static void* extend_heap(size_t words);
 void mm_check(int lineno);
 inline static void insert_block(void* bp);
 inline static void remove_block(void* bp);
 
-/* Initialize the malloc package. Places prologue and eplilogue headers, then
- * extends the heap by CHUNKSIZE. Points heap_listp to the empty payload of the
- * prologue, i.e., the prologue footer.
+/* Initialize the malloc package. Places prologue header & footer and sentinel 
+ * node, then extends the heap by CHUNKSIZE and places epilogue. This creates an
+ * initial empty list of size 4096 B.
  * 
  * Returns 0 if sucessful, -1 if error. 
  */
-int mm_init(void) { // [x] verified correctness. Separate calls for each trace
-    checkheap(__LINE__);
-    char* heap_listp = mem_sbrk(4*WSIZE);
-    if ((long) heap_listp == -1) {
+int mm_init(void) { // [x] verified correctness
+    char* heap_ptr = mem_sbrk(10*WSIZE);
+    if ((long) heap_ptr == -1) {
         return -1;
     }
-    PUT(heap_listp, 0, 0);               // Alignment padding
-    PUT(heap_listp + 1*WSIZE, DSIZE, 1); // Prologue header
-    PUT(heap_listp + 2*WSIZE, DSIZE, 1); // Prologue footer
-    PUT(heap_listp + 3*WSIZE, 0, 1);     // Epilogue header
+    /* Initializes linked list sentinel node */
+    PUT(heap_ptr, 0, 0);               // Alignment padding
+    sentinel = heap_ptr + 2*WSIZE;
+    PUT(HDRP(sentinel), 24, 1);        // @ heap_ptr + 1*WSIZE
+    PUT(FTRP(sentinel), 24, 1);        // @ heap_ptr + 6*WSIZE
+    SET_PREV(sentinel, sentinel);
+    SET_NEXT(sentinel, sentinel);
 
-    /* Extend the heap by CHUNKSIZE, get pointer to first byte of new block.
-    Within the new block, place header, footer, and the epilogue. */
+    PUT(heap_ptr + 7*WSIZE, DSIZE, 1); // Prologue header
+    PUT(heap_ptr + 8*WSIZE, DSIZE, 1); // Prologue footer
+
+    checkheap(__LINE__);
+
+    /* Creates an empty link of size 4096 B,
+    then inserts this into the linked list */
     char* bp = mem_sbrk(CHUNKSIZE);
     if ((long) bp == -1) {
         return -1;
     }
-    PUT(HDRP(bp), CHUNKSIZE, 0); // old epilogue becomes the new block header
+    PUT(HDRP(bp), CHUNKSIZE, 0);    // @ heap_ptr + 9*WSIZE
     PUT(FTRP(bp), CHUNKSIZE, 0);
-    PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // place new epilogue
-
-    /* Set initial empty link */
-    root = bp;
-    SET_PREV_PTR(root, NULL);
-    SET_NEXT_PTR(root, NULL);
+    PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // place epilogue
+    insert_block(bp);   
 
     return 0;
 }
@@ -107,19 +112,21 @@ int mm_init(void) { // [x] verified correctness. Separate calls for each trace
  * Returns a generic pointer to the newly allocated block if successful.
  * Returns NULL on error. 
  */
-static void* extend_heap(size_t words) {
+static void* extend_heap(size_t words) { // [x]
     /* Extend by an even num of words (8 B) to maintain double word alignment.
-    Then get a pointer to the first B of the new heap area. */
+    Then get a pointer to the first byte of the new heap area. 
+    */
     size_t size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     char* bp = mem_sbrk(size);
     if ((long) bp == -1) {
         return NULL;
     }
-    /* Within the new block, place header, footer, and the epilogue header. */
-    PUT(HDRP(bp), size, 0); // old epilogue block becomes the new block header
+    /* Place header, footer, and epilogue of the new block */
+    PUT(HDRP(bp), size, 0); // old epilogue becomes the new block header
     PUT(FTRP(bp), size, 0);
     PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // placing new epilogue block
-    return coalesce(bp);
+
+    return coalesce(bp); // if prev adjacent block is free, will coalesce
 }
 
 /* Given a block pointer bp to a free block, coalesce current block with the
@@ -128,7 +135,7 @@ static void* extend_heap(size_t words) {
  * If bp is free, returns a pointer to the start of the newly coalesced block.
  * If bp is not free, behavior is undefined.
  */
-static void* coalesce(void* bp) {
+static void* coalesce(void* bp) { // [x]
     size_t prevIsFree = !GET_ALLOC(PREV_BLKP(bp));
     size_t nextIsFree = !GET_ALLOC(NEXT_BLKP(bp));
     size_t size = GET_SIZE(bp);
@@ -146,7 +153,8 @@ static void* coalesce(void* bp) {
         void* bp_next = NEXT_BLKP(bp);
         remove_block(bp_next);
 
-        // coalesce blocks; bp stays the same because only next is free
+        // Coalesce & insert to linked list
+        // bp stays the same because only next is free
         size += GET_SIZE(NEXT_BLKP(bp));
         PUT(HDRP(bp), size, 0);
         PUT(FTRP(bp), size, 0);
@@ -157,10 +165,10 @@ static void* coalesce(void* bp) {
         void* bp_prev = PREV_BLKP(bp);
         remove_block(bp_prev);
 
-        // Coalesce blocks
+        // Coalesce & insert to linked list
         size += GET_SIZE(PREV_BLKP(bp));
-        PUT(FTRP(bp), size, 0);            // reset curr footer
-        PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
+        PUT(FTRP(bp), size, 0);      // reset curr footer
+        PUT(HDRP(bp_prev), size, 0); // reset prev header
         bp = PREV_BLKP(bp);
         insert_block(bp);
 
@@ -175,45 +183,32 @@ static void* coalesce(void* bp) {
         
         // coalesce both memory blocks
         size += GET_SIZE(PREV_BLKP(bp)) + GET_SIZE(NEXT_BLKP(bp));
-        PUT(HDRP(PREV_BLKP(bp)), size, 0); // reset prev header
-        PUT(FTRP(NEXT_BLKP(bp)), size, 0); // reset next footer
+        PUT(HDRP(bp_prev), size, 0); // reset prev header
+        PUT(FTRP(bp_next), size, 0); // reset next footer
         bp = PREV_BLKP(bp);
         insert_block(bp);
     }
     return bp;
 }
 
-// Given a block pointer bp, remove this block from the linked list
+/* Given a block pointer bp, remove this block from the linked list */ // [x]
 inline static void remove_block(void* bp) {
-    void* bp_prev = *(void**) bp;
-    void* bp_next = *(void**) ((char*) bp + sizeof(void*));
-
-    if (bp_prev == NULL && bp_next == NULL) {
-        // only possible if root points to single link, where prev and next are null
-        root = NULL;
-
-    } else if (bp_prev == NULL) { // at beginning of list
-        root = bp_next;
-        SET_PREV_PTR(bp_next, NULL);
-
-    } else if (bp_next == NULL) { // at end of list
-        SET_NEXT_PTR(bp_prev, NULL);
-    
-    } else {
-        SET_NEXT_PTR(bp_prev, bp_next);
-        SET_PREV_PTR(bp_next, bp_prev);
-    }
-    SET_NEXT_PTR(bp, NULL);
-    SET_PREV_PTR(bp, NULL);
+    void* bp_prev = PREV(bp);
+    void* bp_next = NEXT(bp);
+    SET_NEXT(bp_prev, bp_next);
+    SET_PREV(bp_next, bp_prev);
+    SET_NEXT(bp, NULL); // NOTE: these two are potentially optional
+    SET_PREV(bp, NULL); //
     checkheap(__LINE__);
 }
 
-// Insert freed block at the front of the list sequence
+/* Append block at the front of the linked list (in front of sentinel) */ // [x]
 inline static void insert_block(void* bp) {
-    SET_PREV_PTR(bp, NULL); // bp.prev = null
-    SET_NEXT_PTR(bp, root); // bp.next = head
-    SET_PREV_PTR(root, bp); // head.prev = bp
-    root = bp;              // root = bp
+    SET_PREV(bp, sentinel);         // bp.prev = sentinel
+    SET_NEXT(bp, NEXT(sentinel));   // bp.next = sentinel.next
+    void* tmp = NEXT(sentinel);         // tmp = sentinel.next
+    SET_PREV(tmp, bp);              // tmp.prev = bp
+    SET_NEXT(sentinel, bp);         // sentinel.next = bp
     checkheap(__LINE__);
 }
 
@@ -221,17 +216,18 @@ inline static void insert_block(void* bp) {
  *
  * If successful, returns a pointer to the newly allocated block.
  * If error, such as no more heap memory to extend, returns NULL.
+ * if payloadSize is negative, behavior is undefined.
  */
 void* mm_malloc(size_t payloadSize) {
     checkheap(__LINE__);
-    size_t adjustedSize; // adjusted block size
+    size_t adjustedSize;
 
     /* Adjust block size to include overhead and alignment reqs. 
-    A next & prev pointer, a header, and a footer take up 24 B-- thus, this is
-    the minimum block size. The payload area will be 16 B.
+    The next & prev pointer and a header & footer take up 24 B-- thus, this is
+    the minimum block size. The payload area will be 24 - 4 - 4 = 16 B.
 
     If <= 16 B is requested, data will fit in the minimum block size of 24. 
-    Else, round up to the nearest multiple of 8 and add 8.
+    Else, round up to the nearest multiple of 8 and add 8 for the header & footer.
     For example, 17 becomes 24, then 32. */
     if (payloadSize == 0) {
         return NULL;
@@ -240,20 +236,23 @@ void* mm_malloc(size_t payloadSize) {
     } else {
         adjustedSize = DSIZE * ((payloadSize + DSIZE + (DSIZE-1)) / DSIZE);
     }
-    /* Traverse the linked list(s) until a fit is found */
-    void* bp = root;
-    while (bp != NULL) {
+    /* Traverse the linked list until a fit is found. Start at sentinel.next.
+    If sentinel.next = sentinel, loop immediately terminates. If sentinel.next
+    != sentinel, but no fit found, bp eventually equals sentinel. */
+    void* bp = NEXT(sentinel);
+    while (bp != sentinel) {
         if (adjustedSize <= GET_SIZE(bp)) {
-            break;
+            place(bp, adjustedSize);
+            return bp;
         }
-        bp = *(void**) ((char*) bp + sizeof(void*));
+        bp = NEXT(sentinel);
     }
-    if (bp == NULL) {  
-        // No fit found. Get more memory and place the block
-        // On extend_heap error, bp = NULL
-        size_t extendSize = MAX(adjustedSize, CHUNKSIZE);
-        bp = extend_heap(extendSize/WSIZE);
-        if (bp == NULL) return NULL;
+    /* No fit found. Get more memory and place the block.
+    On extend_heap error, bp = NULL */
+    size_t extendSize = (adjustedSize > CHUNKSIZE) ? adjustedSize : CHUNKSIZE;
+    bp = extend_heap(extendSize / WSIZE);
+    if (bp == NULL) {
+        return NULL;
     }
     place(bp, adjustedSize);
     return bp;
@@ -264,44 +263,46 @@ void* mm_malloc(size_t payloadSize) {
  *
  * Returns the same passed-in bp pointer.
  */
-static void* place(void* bp, size_t asize) {
+static void place(void* bp, size_t allocSize) {
     checkheap(__LINE__);
 
     // Get the size of the current block
-    size_t csize = GET_SIZE(bp);
-    printf("requested: %d; block size: %d\n", asize, csize);
+    size_t currSize = GET_SIZE(bp);
+    printf("requested: %d; block size: %d\n", allocSize, currSize);
 
-    // FIXME: if root points to block being placed, there will be an error
     // If remainder block size >= 24, split it and append it to list
-    if ((csize - asize) >= (3*DSIZE)) {
+    size_t remainder = currSize - allocSize;
+    if (remainder >= 3*DSIZE) {
+        // remove current block from linked list
+        remove_block(bp);
+
         // Update header and footer of requested block.
         // Note: FTRP depends on size value within header
-        PUT(HDRP(bp), asize, 1);
-        PUT(FTRP(bp), asize, 1);
+        PUT(HDRP(bp), allocSize, 1);
+        PUT(FTRP(bp), allocSize, 1);
 
-        // Set the header and footer of next block
+        // Set header and footer of next block, then insert into linked list
         void* bp_next = NEXT_BLKP(bp);
-        PUT(HDRP(bp_next), csize - asize, 0);
-        PUT(FTRP(bp_next), csize - asize, 0);
+        PUT(HDRP(bp_next), remainder, 0);
+        PUT(FTRP(bp_next), remainder, 0);
         insert_block(bp_next);
 
-    } else { // Remainder block is too small. Just update the alloc bit
-        PUT(HDRP(bp), csize, 1);
-        PUT(FTRP(bp), csize, 1);
+    } else { // Remainder block too small. Remainder block becomes fragmentation
+        PUT(HDRP(bp), currSize, 1);
+        PUT(FTRP(bp), currSize, 1);
         remove_block(bp);
     }
-    return bp;
 }
 
 /* mm_free - free current block, and coalesce prev and next if possible. 
  * Assume bp points to the start of a block.
  */
 void mm_free(void* bp) {
-    checkheap(__LINE__);
     size_t size = GET_SIZE(bp);
     PUT(HDRP(bp), size, 0); // reset header bit
     PUT(FTRP(bp), size, 0); // reset footer bit
     coalesce(bp);
+    checkheap(__LINE__);
 }
 
 /* mm_realloc - realloc payload data that ptr points to to a new payload of newSize.
@@ -350,17 +351,17 @@ void mm_check(int lineno) {
     // are there any contiguous free blocks that somehow escaped coalescing?
     // is every free block actually in the free list?
     printf("called from %d. ", lineno);
-    printf("root = %p\n", root);
+    printf("sentinel = %p\n", sentinel);
 
     // do headers and footers match?
     // is payload aligned?
     // First fit search: traverse linked lists until valid free block found
-    void* bp = root;
-    while (bp != NULL) {
+    void* bp = NEXT(sentinel);
+    while (bp != sentinel) {
         if (GET_ALLOC(bp)) {
             printf("ERROR: Not all blocks in linked list are free\n");
             exit(-1);
         }
-        bp = *(void**) ((char*) bp + sizeof(void*));
+        bp = NEXT(bp);
     }
 }

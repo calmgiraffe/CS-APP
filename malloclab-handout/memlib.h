@@ -6,11 +6,12 @@ void mem_init(void);
 /* mem_deinit - free the storage used by the memory system model */            
 void mem_deinit(void);
 
-/* mem_sbrk - simple model of the sbrk function. Expands the heap by incr bytes,
- * where incr is a positive non-zero int. 
+/* mem_sbrk - simple model of the sbrk function. Increments mem_brk pointer by 
+ * incr, where incr is a positive non-zero int. This has the effect of
+ * expanding the heap by incr bytes.
  *
- * Returns a generic pointer to the first byte of the newly allocated heap area.
- * If error, returns (void *) -1 */
+ * Returns a generic pointer to the first byte of the newly allocated heap area,
+ * i.e., the old pointer to mem_brk. If error, returns (void *) -1 */
 void *mem_sbrk(int incr);
 
 /* mem_reset_brk - reset the simulated brk pointer to make an empty heap.
