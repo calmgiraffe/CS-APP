@@ -27,6 +27,7 @@ team_t team = {
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t))) // = 8 on 64 b computer // NOTE: can remove this
 #define WSIZE 4
 #define DSIZE 8
+#define MIN_BLOCK_SIZE 24
 #define CHUNKSIZE (1<<12)
 
 /** Macro interface */
@@ -79,17 +80,15 @@ int mm_init(void) {
         return -1;
     }
     /* Initializes linked list sentinel node */
-    PUT(heap_ptr, 0, 0);               // Alignment padding
+    PUT(heap_ptr, 0, 0);                    // Alignment padding
     sentinel = heap_ptr + 2*WSIZE;
-    PUT(HDRP(sentinel), 24, 1);        // @ heap_ptr + 1*WSIZE
-    PUT(FTRP(sentinel), 24, 1);        // @ heap_ptr + 6*WSIZE
+    PUT(HDRP(sentinel), MIN_BLOCK_SIZE, 1); // @ heap_ptr + 1*WSIZE
+    PUT(FTRP(sentinel), MIN_BLOCK_SIZE, 1); // @ heap_ptr + 6*WSIZE
     SET_PREV(sentinel, sentinel);
     SET_NEXT(sentinel, sentinel);
 
     PUT(heap_ptr + 7*WSIZE, DSIZE, 1); // Prologue header
     PUT(heap_ptr + 8*WSIZE, DSIZE, 1); // Prologue footer
-
-    checkheap(__LINE__);
 
     /* Creates an empty link of size 4096 B,
     then inserts this into the linked list */
@@ -102,6 +101,7 @@ int mm_init(void) {
     PUT(HDRP(NEXT_BLKP(bp)), 0, 1); // place epilogue
     insert_block(bp);   
 
+    checkheap(__LINE__);
     return 0;
 }
 
@@ -114,8 +114,7 @@ int mm_init(void) {
  */
 static void* extend_heap(size_t words) {
     /* Extend by an even num of words (8 B) to maintain double word alignment.
-    Then get a pointer to the first byte of the new heap area. 
-    */
+    Then get a pointer to the first byte of the new heap area. */
     size_t size = (words % 2) ? (words + 1) * WSIZE : words * WSIZE;
     char* bp = mem_sbrk(size);
     if ((long) bp == -1) {
@@ -197,8 +196,6 @@ inline static void remove_block(void* bp) {
     void* bp_next = NEXT(bp);
     SET_NEXT(bp_prev, bp_next);
     SET_PREV(bp_next, bp_prev);
-    SET_NEXT(bp, NULL); // NOTE: these two are potentially optional
-    SET_PREV(bp, NULL); //
     checkheap(__LINE__);
 }
 
@@ -206,7 +203,7 @@ inline static void remove_block(void* bp) {
 inline static void insert_block(void* bp) {
     SET_PREV(bp, sentinel);         // bp.prev = sentinel
     SET_NEXT(bp, NEXT(sentinel));   // bp.next = sentinel.next
-    void* tmp = NEXT(sentinel);         // tmp = sentinel.next
+    void* tmp = NEXT(sentinel);     // tmp = sentinel.next
     SET_PREV(tmp, bp);              // tmp.prev = bp
     SET_NEXT(sentinel, bp);         // sentinel.next = bp
     checkheap(__LINE__);
@@ -219,7 +216,6 @@ inline static void insert_block(void* bp) {
  * if payloadSize is negative, behavior is undefined.
  */
 void* mm_malloc(size_t payloadSize) {
-    checkheap(__LINE__);
     size_t adjustedSize;
 
     /* Adjust block size to include overhead and alignment reqs. 
@@ -232,7 +228,7 @@ void* mm_malloc(size_t payloadSize) {
     if (payloadSize == 0) {
         return NULL;
     } else if (payloadSize <= 2*DSIZE) {
-        adjustedSize = 3*DSIZE;
+        adjustedSize = MIN_BLOCK_SIZE;
     } else {
         adjustedSize = DSIZE * ((payloadSize + DSIZE + (DSIZE-1)) / DSIZE);
     }
@@ -243,6 +239,7 @@ void* mm_malloc(size_t payloadSize) {
     while (bp != sentinel) {
         if (adjustedSize <= GET_SIZE(bp)) {
             place(bp, adjustedSize);
+            checkheap(__LINE__);
             return bp;
         }
         bp = NEXT(bp);
@@ -255,6 +252,7 @@ void* mm_malloc(size_t payloadSize) {
         return NULL;
     }
     place(bp, adjustedSize);
+    checkheap(__LINE__);
     return bp;
 }
 
@@ -264,14 +262,12 @@ void* mm_malloc(size_t payloadSize) {
  * Returns the same passed-in bp pointer.
  */
 static void place(void* bp, size_t allocSize) {
-    checkheap(__LINE__);
-
     // Get the size of the current block
     size_t currSize = GET_SIZE(bp);
 
     // If remainder block size >= 24, split it and append it to list
     size_t remainder = currSize - allocSize;
-    if (remainder >= 3*DSIZE) {
+    if (remainder >= MIN_BLOCK_SIZE) {
         // remove current block from linked list
         remove_block(bp);
 
@@ -315,7 +311,7 @@ void mm_free(void* bp) {
  */
 void* mm_realloc(void* ptr, size_t newSize) {
     checkheap(__LINE__);
-    void* newptr;
+    void* new_ptr;
     
     if (ptr == NULL) {
         return mm_malloc(newSize);
@@ -328,33 +324,28 @@ void* mm_realloc(void* ptr, size_t newSize) {
         size_t currSize = GET_SIZE(ptr);
         if (newSize == currSize) {
             return ptr;
-
         } else {
-            // Search for a another free block
-            // Copy over the data
-            // Free the current block
-            newptr = mm_malloc(newSize);
+            // Search for new free block, copy the payload, free old block
+            new_ptr = mm_malloc(newSize);
             if (newSize < currSize) {
-                memcpy(newptr, ptr, newSize);
+                memcpy(new_ptr, ptr, newSize);
             } else {
-                memcpy(newptr, ptr, currSize);
+                memcpy(new_ptr, ptr, currSize);
             }
             mm_free(ptr);
-            return newptr;
+            return new_ptr;
         }
     }
 }
 
 /* Checks the heap for correctness. Call this function using checkheap(__LINE__) */
 void mm_check(int lineno) {
-    // are there any contiguous free blocks that somehow escaped coalescing?
-    // is every free block actually in the free list?
     printf("called from %d. ", lineno);
-    printf("sentinel = %p\n", sentinel);
 
     // do headers and footers match?
-    // is payload aligned?
-    // First fit search: traverse linked lists until valid free block found
+    // Is payload aligned?
+    // are there any contiguous free blocks that somehow escaped coalescing?
+    // Is every free block actually in the free list?
     void* bp = NEXT(sentinel);
     while (bp != sentinel) {
         if (GET_ALLOC(bp)) {
