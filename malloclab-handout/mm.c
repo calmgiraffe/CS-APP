@@ -43,6 +43,8 @@ team_t team = {
 #define HDRP(bp) ((char *) (bp) - WSIZE)
 // Get the footer address of the block bp, pointed to by bp.
 #define FTRP(bp) ((char *) (bp) + GET_SIZE(bp) - DSIZE)
+// Set the header and footer of the block pointed to by bp. 
+#define SET_HEADER_FOOTER(bp, size, alloc) (PUT(HDRP(bp), size, alloc); PUT(FTRP(bp), size, alloc))
 // Get the size of the block bp, pointed to by bp.
 #define GET_SIZE(bp) (GET(HDRP(bp)) & ~0x7)
 // Get the alloc bit of the block bp, pointed to by bp.
