@@ -19,16 +19,12 @@ team_t team = {
     ""
 };
 
-/* Rounds up to the nearest multiple of ALIGNMENT */
-#define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7) // NOTE: can remove this
-
 /* Basic constants and macros */
 #define ALIGNMENT 8 // single word (4) or double word (8)
-#define SIZE_T_SIZE (ALIGN(sizeof(size_t))) // = 8 on 64 b computer // NOTE: can remove this
 #define WSIZE 4
 #define DSIZE 8
 #define MIN_BLOCK_SIZE 24
-#define CHUNKSIZE (1<<12)
+#define CHUNKSIZE (1<<10)
 
 /** Macro interface */
 // Given a block pointer bp, get the value of its 'prev' pointer.
@@ -39,13 +35,13 @@ team_t team = {
 #define SET_PREV(bp, ptr) (*(void**) (bp) = (void*) (ptr))
 // Given a block pointer bp, set the value of its 'next' pointer.
 #define SET_NEXT(bp, ptr) (*(void**) ((char *) bp + sizeof(void*)) = (void*) (ptr))
-// Return a word (4 B) at address p.
+// Get a word (4 B) at address p.
 #define GET(p) (*(unsigned int *) (p))
 // Pack the given size and alloc bit, then place at addr p as a 4B unsigned int.
 #define PUT(p, size, alloc) (*(unsigned int *) (p) = ((size) | (alloc)))
-// Return the header address of the block, pointed to by bp. // TODO: can maybe change this so there isn't a dependancy with HDRP
+// Get the header address of the block, pointed to by bp. // NOTE: can maybe change this so there isn't a dependancy with HDRP
 #define HDRP(bp) ((char *) (bp) - WSIZE)
-// Return the footer address of the block bp, pointed to by bp.
+// Get the footer address of the block bp, pointed to by bp.
 #define FTRP(bp) ((char *) (bp) + GET_SIZE(bp) - DSIZE)
 // Get the size of the block bp, pointed to by bp.
 #define GET_SIZE(bp) (GET(HDRP(bp)) & ~0x7)
