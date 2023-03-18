@@ -63,6 +63,7 @@ void doit(int fd)
     }
     printf("%s", buf);
     sscanf(buf, "%s %s %s", method, uri, version);
+
     /* Tiny only handles GET, print error msg if other method */
     if (strcasecmp(method, "GET")) {                   
         clienterror(fd, method, "501", "Not Implemented",
@@ -126,21 +127,24 @@ int parse_uri(char *uri, char *filename, char *cgiargs)
 {
     char *ptr;
     if (!strstr(uri, "cgi-bin")) {  /* Static content */
-        strcpy(cgiargs, "");                           
+        strcpy(cgiargs, ""); // clear cgiargs                    
         strcpy(filename, ".");                          
         strcat(filename, uri);                           
         if (uri[strlen(uri)-1] == '/') {
-            strcat(filename, "home.html");  
+            strcat(filename, "home.html"); // convert into relative Linux pathname
         }                         
         return 1;
+
     } else {  /* Dynamic content */         
-        ptr = index(uri, '?');                          
+        ptr = index(uri, '?');
+        // extract cgiargs                       
         if (ptr) {
             strcpy(cgiargs, ptr + 1);
             *ptr = '\0';
         } else {
             strcpy(cgiargs, "");
         }
+        // convert remainder URI portion into relative filename
         strcpy(filename, ".");
         strcat(filename, uri);
 	return 0;
@@ -156,7 +160,7 @@ void serve_static(int fd, char *filename, int filesize)
     char *srcp, filetype[MAXLINE], buf[MAXBUF];
 
     /* Send response headers to client */
-    get_filetype(filename, filetype); 
+    get_filetype(filename, filetype); // get filetype by inspecting suffix in filename
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "Server: Tiny Web Server\r\n");
@@ -167,17 +171,22 @@ void serve_static(int fd, char *filename, int filesize)
     Rio_writen(fd, buf, strlen(buf));
 
     /* Send response body to client */
+    // open file and get its descriptor - i/o with disk
     srcfd = Open(filename, O_RDONLY, 0);
+    // map the requested file to a virtual memory area - temporarily store
     srcp = Mmap(0, filesize, PROT_READ, MAP_PRIVATE, srcfd, 0);
+    // close descriptor
     Close(srcfd);
+    // actual transfer of file to the client
     Rio_writen(fd, srcp, filesize);
+    // freeing mapped virtual memory area
     Munmap(srcp, filesize);
 }
 
 /*
- * get_filetype - derive file type from file name
+ * get_filetype - derive file type from file name. Stores result in filetype
  */
-void get_filetype(char *filename, char *filetype) 
+void get_filetype(char* filename, char* filetype) 
 {
     if (strstr(filename, ".html")) {
         strcpy(filetype, "text/html");
@@ -207,18 +216,20 @@ void serve_dynamic(int fd, char *filename, char *cgiargs)
   
     if (Fork() == 0) { /* Child */
         /* Real server would set all CGI vars here */
+        // Initialize QUERY_STRING environment variable with CGI args from request URI
         setenv("QUERY_STRING", cgiargs, 1);
-        Dup2(fd, STDOUT_FILENO); /* Redirect stdout to client */
-        Execve(filename, emptylist, environ); /* Run CGI program */
+        // Redirect child's output to the connected file descriptor
+        Dup2(fd, STDOUT_FILENO);
+        // Run CGI program        
+        Execve(filename, emptylist, environ);   
     }
-    Wait(NULL); /* Parent waits for and reaps child */
+    Wait(NULL); // Parent waits for and reaps child
 }
 
 /*
  * clienterror - returns an error message to the client
  */
-void clienterror(int fd, char *cause, char *errnum, 
-		 char *shortmsg, char *longmsg) 
+void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg) 
 {
     char buf[MAXLINE];
 
