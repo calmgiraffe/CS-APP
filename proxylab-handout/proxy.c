@@ -6,15 +6,16 @@
 #define MAX_OBJECT_SIZE 102400
 
 /* You won't lose style points for including this long line in your code */
-static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
+// static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; 
+// Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
 void echo(int connfd);
-int parse_http_request(int connfd, char* host, char* port, char* path);
+void parse_http_request(int connfd, char* host, char* port, char* path);
 int parse_uri(char* uri, char* host, char* port, char* path);
 
 int main(int argc, char** argv) {   
     int listenfd, connfd;
-    socklen_t clientlen; // represents the length of a socket address
+    socklen_t clientlen;
     struct sockaddr_storage clientaddr; // IPv independent sockaddr struct
     char client_hostname[MAXLINE], client_port[MAXLINE];
 
@@ -25,28 +26,28 @@ int main(int argc, char** argv) {
     /* Given a specified port, return a listening file descriptor. */
     listenfd = Open_listenfd(argv[1]);
     while (1) {
-        /* Server blocks until connection request, which means it waits until 
-        a connection request arrives. Fills in client socket address in clientaddr */
+        /* Server blocks until connection request:
+        waits until a connection request arrives */
         clientlen = sizeof(clientaddr);
         connfd = Accept(listenfd, (struct sockaddr*) &clientaddr, &clientlen);
 
-        /* Get the hostname and port. Here, will be localhost and an ephemeral 
-        port that is different from argv[1] */
+        /* Get the hostname and port. In context of driver, will be localhost
+        and ephemeral port that is different from argv[1] */
         Getnameinfo((struct sockaddr*) &clientaddr, clientlen, client_hostname,
                 MAXLINE, client_port, MAXLINE, 0);
         printf("Connected to (%s, %s)\n", client_hostname, client_port);
 
-        /* Listen for http request on connfd. Parse the request and any headers,
-        and put result in hostname and query */
+        /* Listen for http request on connfd.
+        Parse the request and headers, and put result in host, port, path */
         char host[MAXLINE], port[6], path[MAXLINE];
-        int isValid = parse_http_request(connfd, host, port, path);
+        parse_http_request(connfd, host, port, path);
         
-        // if so, proxy establishes its own connection to the appropriate web server
-        // then request the object the client specified
+        
+        // if valid connection, proxy establishes its own connection to the
+        // appropriate web server then requests the object the client specified
+        printf("%s %s %s\n", host, port, path);
+        
         // finally, proxy should read server's response and forward it to client
-        if (isValid) {
-            printf("%s %s %s\n", host, port, path);
-        }
         Close(connfd);
     }
     exit(0);
@@ -55,77 +56,80 @@ int main(int argc, char** argv) {
 // read the entirety of the request and parse it
 // should determine if request was a valid HTTP request
 // return 0 if valid http request, else return -1
-int parse_http_request(int connfd, char* host, char* port, char* path) {
-
-    char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE];
+void parse_http_request(int connfd, char* host, char* port, char* path) {
     rio_t rio; 
     Rio_readinitb(&rio, connfd);
+    char buf[MAXLINE], method[5], uri[MAXLINE], version[9];
 
+    // TODO: redo error handing functions so they don't exit()
     if (!Rio_readlineb(&rio, buf, MAXLINE)) {
-        return -1;
+        return;
     }
     sscanf(buf, "%s %s %s", method, uri, version);
-    if (strcasecmp(method, "GET")) { // TODO: also send HTTP response to client?
-        return -1;
+    // TODO: also send HTTP response to client?
+    if (strcasecmp(method, "GET")) { 
+        return;
     }
-    // parse URL into hostname and query
     if (parse_uri(uri, host, port, path)) {
-        return -1;
+        return;
     }
     // Valid HTTP response:
     // version should be HTTP/1.0 or HTTP/1.1
-    if (strcasecmp(version, "HTTP/1.0") || strcasecmp(version, "HTTP/1.1")) {
-        return -1;
+    if (strcmp(version, "HTTP/1.0") | strcmp(version, "HTTP/1.1")) {
+        return;
     }
-    return 0;
+    return;
 }
 
 /*
- *
+ * Break the URI down into host, port, and path fields. The pointers of these
+ * fields are passed in. url ends with \0 since it's an output of sscanf
+ * 
  * Example URIS:
  * http://example.com:8080/path/to/resource?query=string#fragment
  * http://example.com/path/to/resource?query=string#fragment
  */
 int parse_uri(char* uri, char* host, char* port, char* path) {
     /* Check that the first 7 chars of uri are "http://".
-    Return with error code if not */
+    Return with error code if not. */
     char protocol[8];
     strncpy(protocol, uri, 7);
     protocol[7] = '\0';
-    if (!strcmp(protocol, "http://")) {
+    if (strcasecmp(protocol, "http://")) {
         return -1;
     }
     /* Get a pointer to the first instance of '/' within uri, starting from the
     substring after "http://". Every request must have a path. */
-    if ((path = strstr(uri + 7, "/")) == NULL) {
+    char* pathPtr;
+    if ((pathPtr = strstr(uri + 7, "/")) == NULL) {
         return -1;
     }
-    // Get the substring from uri+7 to path
-    char* hostPtr = uri + 7, *portPtr, curr;
-    int i = 0;
-    while (hostPtr + i != path) {
-        curr = *(hostPtr + i);
-        /* If curr becomes ":" before hostPtr + i == path, 
-        use the requested port that lies between ':' and '/' instead of 80. */
+    strcpy(path, pathPtr);
+
+    /* Get the substr from uri+7 to path, which is the host. If curr becomes ":"
+    before hostPtr + i == path, use the requested port that lies between ':'
+    and '/' instead of the default 80. */
+    char *hostPtr = uri + 7, *portPtr = NULL, curr;
+    int i;
+    for (i = 0; hostPtr + i != pathPtr; i++) {
+        curr = hostPtr[i];
         if (curr == ':') {
             portPtr = hostPtr + i + 1;
             break;
         }
         host[i] = curr;
-        i += 1;
     }
     host[i] = '\0';
-    if (portPtr == NULL) { // indicating port not specified
+
+    if (portPtr == NULL) { 
         strcpy(port, "80");
-        return 0;
+    } else {
+        /* Get the substring from portPtr to path */
+        for (i = 0; portPtr + i != pathPtr; i++) {
+            port[i] = portPtr[i];
+        }
+        port[i] = '\0';
     }
-    // Else, there is a specified port. Get the substring from portPtr to query
-    i = 0;
-    while (portPtr + i != path) {
-        port[i] = *(portPtr + i);
-        i += 1;
-    }
-    port[i] = '\0';
     return 0;
 }
 
