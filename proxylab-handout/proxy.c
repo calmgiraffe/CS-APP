@@ -50,8 +50,10 @@ int main(int argc, char **argv) {
  */
 void handle_request(int fd) {
     char method[MAXLINE], uri[MAXLINE], version[MAXLINE];
-    char host[MAXLINE], port[6], path[MAXLINE]; 
-    char newRequest[MAXLINE], buf[MAXLINE], response[MAX_OBJECT_SIZE];
+    char host[MAXLINE], port[6], path[MAXLINE]; // extracted from uri
+    char newRequest[MAXLINE]; // new http request to send to server
+    char response[MAX_OBJECT_SIZE]; // response from server
+    char buf[MAXLINE]; // pointer to char array for rio package
     rio_t rioClient, rioServer;
     int serverfd;
 
@@ -79,7 +81,7 @@ void handle_request(int fd) {
     }
     /* http headers: error if max len exceeded */
     if (build_new_request(&rioClient, newRequest, path, host)) {
-        clienterror(fd, method, "400", "Bad Request", "Bad HTTP headers");
+        clienterror(fd, method, "400", "Bad Request", "Request size exceeded");
         return;
     }
     /* connect proxy to web server and send new HTTP request */
@@ -195,7 +197,7 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     Rio_writen(fd, buf, strlen(buf));
 
     /* Print the HTTP response body */
-    sprintf(buf, "<html><title>Tiny Error</title>");
+    sprintf(buf, "<html><title>Proxy Error</title>");
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "<body bgcolor=""ffffff"">\r\n");
     Rio_writen(fd, buf, strlen(buf));
@@ -203,6 +205,6 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "<p>%s: %s\r\n", longmsg, cause);
     Rio_writen(fd, buf, strlen(buf));
-    sprintf(buf, "<hr><em>The Tiny Web server</em>\r\n");
+    sprintf(buf, "<hr><em>The Proxy Web server</em>\r\n");
     Rio_writen(fd, buf, strlen(buf));
 }
