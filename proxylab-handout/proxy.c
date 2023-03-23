@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
 void handle_request(int fd) {
     char method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     char host[MAXLINE], port[6], path[MAXLINE]; 
-    char newRequest[MAXLINE], buf[MAXLINE], response[MAXLINE];
+    char newRequest[MAXLINE], buf[MAXLINE], response[MAX_OBJECT_SIZE];
     rio_t rioClient, rioServer;
     int serverfd;
 
@@ -85,7 +85,7 @@ void handle_request(int fd) {
     /* connect proxy to web server and send new HTTP request */
     serverfd = Open_clientfd(host, port);
     Rio_readinitb(&rioServer, serverfd);
-    Rio_writen(serverfd, buf, strlen(buf));
+    Rio_writen(serverfd, newRequest, strlen(newRequest));
 
     /* get response and send to client */
     int len = Rio_readnb(&rioServer, response, sizeof(response));
@@ -143,7 +143,7 @@ int parse_uri(char *uri, char *host, char *port, char *path) {
     char protocol[8];
     strncpy(protocol, uri, 7);
     protocol[7] = '\0';
-    if (strcasecmp(protocol, "http://")) { // TODO: HTTPS functionality
+    if (strcmp(protocol, "http://")) { // TODO: HTTPS functionality
         return -1;
     }
     /* Get a pointer to the first instance of '/' within uri, starting from the
