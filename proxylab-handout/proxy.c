@@ -2,6 +2,8 @@
 #include "csapp.h"
 
 /* Recommended max cache and object sizes */
+#define MAX_PORT_LEN 6
+#define MAX_NUM_HEADERS 1000
 #define MAX_CACHE_SIZE 1049000
 #define MAX_OBJECT_SIZE 102400
 
@@ -10,38 +12,36 @@
 // Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
 void echo(int connfd);
-void parse_http_request(int connfd, char* host, char* port, char* path);
-int parse_uri(char* uri, char* host, char* port, char* path);
+void parse_http_request(int connfd, char *host, char *port, char *path, char *hdrs);
+int parse_uri(char *uri, char *host, char *port, char *path);
 
-int main(int argc, char** argv) {   
+int main(int argc, char **argv) {
     int listenfd, connfd;
     socklen_t clientlen;
     struct sockaddr_storage clientaddr; // IPv independent sockaddr struct
-    char client_hostname[MAXLINE], client_port[MAXLINE];
+    char client_hostname[MAXLINE], client_port[MAX_PORT_LEN];
 
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <port>\n", argv[0]);
         exit(0);
     }
-    /* Given a specified port, return a listening file descriptor. */
+
     listenfd = Open_listenfd(argv[1]);
     while (1) {
-        /* Server blocks until connection request:
-        waits until a connection request arrives */
+        /* Server blocks (waits) until connection request arrives */
         clientlen = sizeof(clientaddr);
-        connfd = Accept(listenfd, (struct sockaddr*) &clientaddr, &clientlen);
+        connfd = Accept(listenfd, (struct sockaddr *) &clientaddr, &clientlen);
 
         /* Get the hostname and port. In context of driver, will be localhost
         and ephemeral port that is different from argv[1] */
-        Getnameinfo((struct sockaddr*) &clientaddr, clientlen, client_hostname,
-                MAXLINE, client_port, MAXLINE, 0);
+        Getnameinfo((struct sockaddr *) &clientaddr, clientlen, client_hostname,
+                MAXLINE, client_port, MAX_PORT_LEN, 0);
         printf("Connected to (%s, %s)\n", client_hostname, client_port);
 
-        /* Listen for http request on connfd.
-        Parse the request and headers, and put result in host, port, path */
-        char host[MAXLINE], port[6], path[MAXLINE];
-        parse_http_request(connfd, host, port, path);
-        
+        /* parse request and headers, and put result in host, port, path
+        note: represents origin server info */
+        char host[MAXLINE], port[MAX_PORT_LEN], path[MAXLINE], headers[MAXLINE];
+        parse_http_request(connfd, host, port, path, headers);
         
         // if valid connection, proxy establishes its own connection to the
         // appropriate web server then requests the object the client specified
@@ -56,29 +56,49 @@ int main(int argc, char** argv) {
 // read the entirety of the request and parse it
 // should determine if request was a valid HTTP request
 // return 0 if valid http request, else return -1
-void parse_http_request(int connfd, char* host, char* port, char* path) {
+void parse_http_request(int connfd, char *host, char *port, char *path, char *hdrs) {
     rio_t rio; 
     Rio_readinitb(&rio, connfd);
     char buf[MAXLINE], method[5], uri[MAXLINE], version[9];
 
-    // TODO: redo error handing functions so they don't exit()
+    // TODO: redo error handing functions so they don't exit() thereby terminating program
     if (!Rio_readlineb(&rio, buf, MAXLINE)) {
         return;
     }
-    sscanf(buf, "%s %s %s", method, uri, version);
-    // TODO: also send HTTP response to client?
-    if (strcasecmp(method, "GET")) { 
+    if (strcasecmp(method, "GET") | parse_uri(uri, host, port, path) | 
+        strcasecmp(version, "HTTP/1.0") | strcasecmp(version, "HTTP/1.1")) {
+        // There was an error in one of the functions
         return;
     }
-    if (parse_uri(uri, host, port, path)) {
+    // parse headers, store in hdrs
+    if (parse_request_hdrs(&rio, hdrs)) {
         return;
     }
-    // Valid HTTP response:
-    // version should be HTTP/1.0 or HTTP/1.1
-    if (strcmp(version, "HTTP/1.0") | strcmp(version, "HTTP/1.1")) {
-        return;
-    }
+    
     return;
+}
+
+/*
+ * Read HTTP headers, if any, and stores them in hdrs. Stored in continuous
+ * char array with \r\n to indicate end of header.
+ */
+int parse_request_hdrs(rio_t *rp, char *hdrs) {
+    char buf[MAXLINE];
+    int totalLen = 0;
+    int len;
+
+    while (strcmp(buf, "\r\n")) {
+        Rio_readlineb(rp, buf, MAXLINE); // terminates '\n' with '\0'
+        len = strlen(buf);               // len of header txt + "\r\n"
+        totalLen += len;
+        if (totalLen >= MAXLINE) {
+            // TODO: raise error
+            hdrs[MAXLINE-1] = '\0';
+            return -1;
+        }
+        strncat(hdrs, buf, len);
+    }
+    return 0;
 }
 
 /*
@@ -89,9 +109,10 @@ void parse_http_request(int connfd, char* host, char* port, char* path) {
  * http://example.com:8080/path/to/resource?query=string#fragment
  * http://example.com/path/to/resource?query=string#fragment
  */
-int parse_uri(char* uri, char* host, char* port, char* path) {
+int parse_uri(char *uri, char *host, char *port, char *path) {
     /* Check that the first 7 chars of uri are "http://".
     Return with error code if not. */
+    // TODO: HTTPS functionality
     char protocol[8];
     strncpy(protocol, uri, 7);
     protocol[7] = '\0';
@@ -132,6 +153,7 @@ int parse_uri(char* uri, char* host, char* port, char* path) {
     }
     return 0;
 }
+
 
 void echo(int connfd) {
     size_t n;

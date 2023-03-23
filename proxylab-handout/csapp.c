@@ -939,7 +939,8 @@ ssize_t Rio_readnb(rio_t *rp, void *usrbuf, size_t n)
 /* Reads the next text line from file rp (including \n terminating character),
 copies it to memory location usrbuf, and terminates the textline with \0.
 Reads at most maxlen-1 bytes to leave room for terminating \0. Can be
-interleaved with rio_readnb. */
+interleaved with rio_readnb. Text lines that exceed maxlen-1 are truncated and
+terminated with \0 */
 ssize_t Rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen) 
 {
     ssize_t rc;
@@ -961,7 +962,6 @@ ssize_t Rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen)
  *       -2 for getaddrinfo error
  *       -1 with errno set for other errors.
  */
-/* $begin open_clientfd */
 int open_clientfd(char *hostname, char *port) {
     int clientfd, rc;
     struct addrinfo hints, *listp, *p;
@@ -985,12 +985,12 @@ int open_clientfd(char *hostname, char *port) {
         /* Connect to the server */
         if (connect(clientfd, p->ai_addr, p->ai_addrlen) != -1) 
             break; /* Success */
-        if (close(clientfd) < 0) { /* Connect failed, try another */  //line:netp:openclientfd:closefd
+        /* Connect failed, try another */
+        if (close(clientfd) < 0) { 
             fprintf(stderr, "open_clientfd: close failed: %s\n", strerror(errno));
             return -1;
         } 
     } 
-
     /* Clean up */
     freeaddrinfo(listp);
     if (!p) /* All connects failed */
@@ -998,7 +998,6 @@ int open_clientfd(char *hostname, char *port) {
     else    /* The last connect succeeded */
         return clientfd;
 }
-/* $end open_clientfd */
 
 /*  
  * open_listenfd - Open and return a listening socket on port. This
@@ -1008,7 +1007,6 @@ int open_clientfd(char *hostname, char *port) {
  *       -2 for getaddrinfo error
  *       -1 with errno set for other errors.
  */
-/* $begin open_listenfd */
 int open_listenfd(char *port) 
 {
     struct addrinfo hints, *listp, *p;
@@ -1043,7 +1041,6 @@ int open_listenfd(char *port)
         }
     }
 
-
     /* Clean up */
     freeaddrinfo(listp);
     if (!p) /* No address worked */
@@ -1056,7 +1053,6 @@ int open_listenfd(char *port)
     }
     return listenfd;
 }
-/* $end open_listenfd */
 
 /****************************************************
  * Wrappers for reentrant protocol-independent helpers
@@ -1078,9 +1074,3 @@ int Open_listenfd(char *port)
 	unix_error("Open_listenfd error");
     return rc;
 }
-
-/* $end csapp.c */
-
-
-
-
