@@ -40,16 +40,14 @@
 typedef struct sockaddr SA;
 /* $end sockaddrdef */
 
-/* Persistent state for the robust I/O (Rio) package */
-/* $begin rio_t */
 #define RIO_BUFSIZE 8192
+/* Persistent state for the robust I/O (Rio) package */
 typedef struct {
     int rio_fd;                /* Descriptor for this internal buf */
     int rio_cnt;               /* Unread bytes in internal buf */
     char *rio_bufptr;          /* Next unread byte in internal buf */
     char rio_buf[RIO_BUFSIZE]; /* Internal buffer */
 } rio_t;
-/* $end rio_t */
 
 /* External variables */
 extern int h_errno;    /* Defined by BIND for DNS errors */ 

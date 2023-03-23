@@ -937,7 +937,7 @@ ssize_t Rio_readnb(rio_t *rp, void *usrbuf, size_t n)
 }
 
 /* Reads the next text line from file rp (including \n terminating character),
-copies it to memory location usrbuf, and terminates the textline with \0 char.
+copies it to memory location usrbuf, and terminates the textline with \0.
 Reads at most maxlen-1 bytes to leave room for terminating \0. Can be
 interleaved with rio_readnb. */
 ssize_t Rio_readlineb(rio_t *rp, void *usrbuf, size_t maxlen) 
