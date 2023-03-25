@@ -3,9 +3,8 @@
 
 /* Recommended max cache and object sizes */
 #define MAX_PORT_LEN 6
-#define MAX_NUM_HEADERS 1000
-#define MAX_CACHE_SIZE 1049000
-#define MAX_OBJECT_SIZE 102400
+#define MAX_CACHE_SIZE 1049000 // 1 MB
+#define MAX_OBJECT_SIZE 102400 // 100 KB
 
 #define debug(lineno) printf("called from %d.\n", lineno);
 
@@ -47,10 +46,11 @@ int main(int argc, char **argv) {
 
 /*
  * doit - handle one HTTP request/response transaction
+ * // TODO: add HTTPS functionality and/or POST
  */
 void handle_request(int fd) {
     char method[MAXLINE], uri[MAXLINE], version[MAXLINE];
-    char host[MAXLINE], port[6], path[MAXLINE]; // extracted from uri
+    char host[MAXLINE], port[MAX_PORT_LEN], path[MAXLINE]; // extracted from uri
     char newRequest[MAXLINE]; // new http request to send to server
     char response[MAX_OBJECT_SIZE]; // response from server
     char buf[MAXLINE]; // pointer to char array for rio package
@@ -104,10 +104,7 @@ void handle_request(int fd) {
  */
 int build_new_request(rio_t *rp, char *newRequest, char *path, char* host) {
 
-    sprintf(newRequest, "GET %s HTTP/1.0\r\n", path);
-    strcat(newRequest, "Host: ");
-    strcat(newRequest, host);
-    strcat(newRequest, "\r\n");
+    sprintf(newRequest, "GET %s HTTP/1.0\r\nHost: %s\r\n", path, host);
     strcat(newRequest, "Connection: close\r\n");
     strcat(newRequest, "Proxy-Connection: close\r\n");
 
@@ -121,8 +118,7 @@ int build_new_request(rio_t *rp, char *newRequest, char *path, char* host) {
         totalLen += len;
         debug(__LINE__);
 
-        if (totalLen >= MAXLINE) {
-            // raise error bc buffer space exceeded
+        if (totalLen >= MAXLINE) { // raise error bc buffer space exceeded
             newRequest[MAXLINE-1] = '\0';
             return -1;
         }
@@ -133,7 +129,7 @@ int build_new_request(rio_t *rp, char *newRequest, char *path, char* host) {
 
 /*
  * Break the URI down into host, port, and path fields. The pointers of these
- * fields are passed in. url ends with \0 since it's an output of sscanf
+ * fields are passed in. uri ends with \0 since it's an output of sscanf
  * 
  * Example URIS:
  * http://example.com:8080/path/to/resource?query=string#fragment
