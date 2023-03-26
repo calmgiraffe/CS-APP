@@ -11,7 +11,7 @@
 // static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; 
 // Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
-void *thread(void *vargp);
+void *handle_http(void *vargp);
 int build_new_request(rio_t *rp, char *newRequest, char *path, char* host);
 int parse_uri(char *uri, char *host, char *port, char *path);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
@@ -45,23 +45,23 @@ int main(int argc, char **argv) {
                 clientPort, MAXLINE, 0);
         printf("Accepted connection from (%s, %s)\n", clientHost, clientPort);
 
-        Pthread_create(&tid, NULL, thread, (void *) connfd);
+        Pthread_create(&tid, NULL, handle_http, (void *) connfd);
     }
     return 0;
 }
 
 /*
- * doit - handle one HTTP request/response transaction
+ * handle_http - handle one HTTP request/response transaction
  * // TODO: add HTTPS functionality and/or POST
  */
-void *thread(void *vargp) {
+void *handle_http(void *vargp) {
     Pthread_detach(pthread_self());
 
     char method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     char host[MAXLINE], port[MAX_PORT_LEN], path[MAXLINE]; // extracted from uri
-    char newRequest[MAXLINE]; // new http request to send to server
+    char newRequest[MAXLINE];       // new http request to send to server
     char response[MAX_OBJECT_SIZE]; // response from server
-    char buf[MAXLINE]; // pointer to char array for rio package
+    char buf[MAXLINE];              // pointer to char array for rio package
     rio_t rioClient, rioServer;
     int fd, serverfd;
 
