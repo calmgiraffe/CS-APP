@@ -1,5 +1,4 @@
-#include <stdio.h>
-#include "csapp.h"
+#include "csapp.h" // csapp.h "includes" needed header files
 
 /* Recommended max cache and object sizes */
 #define MAX_PORT_LEN 6
@@ -12,34 +11,41 @@
 // static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; 
 // Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
 
-void handle_request(int fd);
+void *thread(void *vargp);
 int build_new_request(rio_t *rp, char *newRequest, char *path, char* host);
 int parse_uri(char *uri, char *host, char *port, char *path);
 void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longmsg);
 
 int main(int argc, char **argv) {
-    int listenfd, connfd;
+    pthread_t tid;
+    int listenfd, *connfd;
     socklen_t clientLen;
     struct sockaddr_storage clientAddr; // IPv independent sockaddr struct
     char clientHost[MAXLINE], clientPort[MAXLINE];
 
+    /* Ignore SIGPIPE signals */
+    Signal(SIGPIPE, SIG_IGN);
+    
     /* Check command line args */
     if (argc != 2) {
         fprintf(stderr, "Usage: %s <port>\n", argv[0]);
         exit(0);
     }
-    listenfd = Open_listenfd(argv[1]); // listening fd for incoming requests
+    listenfd = Open_listenfd(argv[1]); // listening fd on specified port
+    clientLen = sizeof(clientAddr);
+
     while (1) {
         /* Proxy blocks (waits) until connection request arrives.
         Get the hostname and port. In context of driver, will be localhost
         and ephemeral port that is different from argv[1] */
-        clientLen = sizeof(clientAddr);
-        connfd = Accept(listenfd, (SA *) &clientAddr, &clientLen);
+
+        connfd = Malloc(sizeof(int)); // assign connfd to unique position in heap
+        *connfd = Accept(listenfd, (SA *) &clientAddr, &clientLen);
         Getnameinfo((SA *) &clientAddr, clientLen, clientHost, MAXLINE, 
                 clientPort, MAXLINE, 0);
         printf("Accepted connection from (%s, %s)\n", clientHost, clientPort);
-        handle_request(connfd);
-        Close(connfd);
+
+        Pthread_create(&tid, NULL, thread, (void *) connfd);
     }
     return 0;
 }
@@ -48,14 +54,19 @@ int main(int argc, char **argv) {
  * doit - handle one HTTP request/response transaction
  * // TODO: add HTTPS functionality and/or POST
  */
-void handle_request(int fd) {
+void *thread(void *vargp) {
+    Pthread_detach(pthread_self());
+
     char method[MAXLINE], uri[MAXLINE], version[MAXLINE];
     char host[MAXLINE], port[MAX_PORT_LEN], path[MAXLINE]; // extracted from uri
     char newRequest[MAXLINE]; // new http request to send to server
     char response[MAX_OBJECT_SIZE]; // response from server
     char buf[MAXLINE]; // pointer to char array for rio package
     rio_t rioClient, rioServer;
-    int serverfd;
+    int fd, serverfd;
+
+    fd = *((int *) vargp);
+    Free(vargp);
 
     /* Read request line and headers */
     Rio_readinitb(&rioClient, fd);
@@ -66,23 +77,23 @@ void handle_request(int fd) {
     if (strcasecmp(method, "GET")) {
         clienterror(fd, method, "501", "Not Implemented", 
                 "Proxy does not implement this method");
-        return;
+        return NULL;
     }
     /* b) uri: break down uri into host, port, & path 
     note: default port is 80, but client can specify a specific port */
     if (parse_uri(uri, host, port, path)) {
         clienterror(fd, method, "400", "Bad Request", "Bad URI");
-        return;
+        return NULL;
     }
     /* c) version: error msg if other than HTTP/1.0 or HTTP/1.1 */
     if (strcasecmp(version, "HTTP/1.0") & strcasecmp(version, "HTTP/1.1")) {
         clienterror(fd, method, "400", "Bad Request", "Bad HTTP version");
-        return;
+        return NULL;
     }
     /* http headers: error if max len exceeded */
     if (build_new_request(&rioClient, newRequest, path, host)) {
         clienterror(fd, method, "400", "Bad Request", "Request size exceeded");
-        return;
+        return NULL;
     }
     /* connect proxy to web server and send new HTTP request */
     serverfd = Open_clientfd(host, port);
@@ -92,10 +103,14 @@ void handle_request(int fd) {
     /* get response and send to client */
     int len = Rio_readnb(&rioServer, response, sizeof(response));
     printf("Read %d bytes from server\n", len);
-    Rio_writen(fd, response, sizeof(response));
+    Rio_writen(fd, response, len);
 
     close(serverfd);
+    close(fd);
+
+    return NULL;
 }
+
 
 /*
  * Read HTTP headers, if any, and stores them in hdrs. Stored in continuous
@@ -203,4 +218,6 @@ void clienterror(int fd, char *cause, char *errnum, char *shortmsg, char *longms
     Rio_writen(fd, buf, strlen(buf));
     sprintf(buf, "<hr><em>The Proxy Web server</em>\r\n");
     Rio_writen(fd, buf, strlen(buf));
+
+    close(fd);
 }
